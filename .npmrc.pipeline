@@ -4,10 +4,10 @@ registry=https://registry.npmjs.org/
 ; begin auth token
 //pkgs.dev.azure.com/sda-iatec/_packaging/IATec.Community/npm/registry/:always-auth=true
 //pkgs.dev.azure.com/sda-iatec/_packaging/IATec.Community/npm/registry/:username=sda-iatec
-//pkgs.dev.azure.com/sda-iatec/_packaging/IATec.Community/npm/registry/:_password=NWt2cERQRzFQQkpMSGllWVc1VmQwWERtV055QktFeWhnQlVkTUF5YjRlc1BWeFpSdkZYNkpRUUo5OUNCQUNBQUFBQUd2ZzFEQUFBU0FaRE8zOFpS
+//pkgs.dev.azure.com/sda-iatec/_packaging/IATec.Community/npm/registry/:_password=RXhxcjZ1MkxlQ05HQ0dubXF1Tng0dUtiSnZjaERlUUMxVEFTVkFTUU03QjlPWWZyRFJKbUpRUUo5OUNCQUNBQUFBQUd2ZzFEQUFBU0FaRE9tdkFI
 //pkgs.dev.azure.com/sda-iatec/_packaging/IATec.Community/npm/registry/:email=arch.dev@iatec.com
 //pkgs.dev.azure.com/sda-iatec/_packaging/IATec.Community/npm/:always-auth=true
 //pkgs.dev.azure.com/sda-iatec/_packaging/IATec.Community/npm/:username=sda-iatec
-//pkgs.dev.azure.com/sda-iatec/_packaging/IATec.Community/npm/:_password=NWt2cERQRzFQQkpMSGllWVc1VmQwWERtV055QktFeWhnQlVkTUF5YjRlc1BWeFpSdkZYNkpRUUo5OUNCQUNBQUFBQUd2ZzFEQUFBU0FaRE8zOFpS
+//pkgs.dev.azure.com/sda-iatec/_packaging/IATec.Community/npm/:_password=RXhxcjZ1MkxlQ05HQ0dubXF1Tng0dUtiSnZjaERlUUMxVEFTVkFTUU03QjlPWWZyRFJKbUpRUUo5OUNCQUNBQUFBQUd2ZzFEQUFBU0FaRE9tdkFI
 //pkgs.dev.azure.com/sda-iatec/_packaging/IATec.Community/npm/:email=arch.dev@iatec.com
 ; end auth token
