@@ -45,7 +45,7 @@ steps:
       workingDir: "$(Build.SourcesDirectory)"
 
   - task: Npm@1
-    displayName: "Build - @iatec/berean"
+    displayName: "Build - berean"
     inputs:
       command: "custom"
       customCommand: "run prepublishOnly"
