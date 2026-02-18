@@ -2,7 +2,7 @@
 # Berean installer - install globally from GitHub
 set -e
 
-REPO="https://github.com/rajada1/berean.git"
+REPO="https://github.com/iatecbr/IATec.AI.WorkFlow.Review.Berean.git"
 INSTALL_DIR="${BEREAN_INSTALL_DIR:-$HOME/.berean-cli}"
 
 echo "📦 Installing Berean..."
