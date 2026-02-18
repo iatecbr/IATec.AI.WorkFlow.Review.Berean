@@ -1,13 +1,13 @@
 registry=https://registry.npmjs.org/
-@iatec:registry=https://#{NPM_IATEC_HOST_COMMUNITY}#/npm/registry/
+@iatec:registry=https://pkgs.dev.azure.com/sda-iatec/_packaging/IATec.Community/npm/registry/
 
 ; begin auth token
-//#{NPM_IATEC_HOST_COMMUNITY}#/npm/registry/:always-auth=true
-//#{NPM_IATEC_HOST_COMMUNITY}#/npm/registry/:username=#{NPM_USER_NAME}#
-//#{NPM_IATEC_HOST_COMMUNITY}#/npm/registry/:_password=#{NPM_BASE_64_PASSWORD}#
-//#{NPM_IATEC_HOST_COMMUNITY}#/npm/registry/:email=#{NPM_EMAIL}#
-//#{NPM_IATEC_HOST_COMMUNITY}#/npm/:always-auth=true
-//#{NPM_IATEC_HOST_COMMUNITY}#/npm/:username=#{NPM_USER_NAME}#
-//#{NPM_IATEC_HOST_COMMUNITY}#/npm/:_password=#{NPM_BASE_64_PASSWORD}#
-//#{NPM_IATEC_HOST_COMMUNITY}#/npm/:email=#{NPM_EMAIL}#
+//pkgs.dev.azure.com/sda-iatec/_packaging/IATec.Community/npm/registry/:always-auth=true
+//pkgs.dev.azure.com/sda-iatec/_packaging/IATec.Community/npm/registry/:username=sda-iatec
+//pkgs.dev.azure.com/sda-iatec/_packaging/IATec.Community/npm/registry/:_password=NWt2cERQRzFQQkpMSGllWVc1VmQwWERtV055QktFeWhnQlVkTUF5YjRlc1BWeFpSdkZYNkpRUUo5OUNCQUNBQUFBQUd2ZzFEQUFBU0FaRE8zOFpS
+//pkgs.dev.azure.com/sda-iatec/_packaging/IATec.Community/npm/registry/:email=arch.dev@iatec.com
+//pkgs.dev.azure.com/sda-iatec/_packaging/IATec.Community/npm/:always-auth=true
+//pkgs.dev.azure.com/sda-iatec/_packaging/IATec.Community/npm/:username=sda-iatec
+//pkgs.dev.azure.com/sda-iatec/_packaging/IATec.Community/npm/:_password=NWt2cERQRzFQQkpMSGllWVc1VmQwWERtV055QktFeWhnQlVkTUF5YjRlc1BWeFpSdkZYNkpRUUo5OUNCQUNBQUFBQUd2ZzFEQUFBU0FaRE8zOFpS
+//pkgs.dev.azure.com/sda-iatec/_packaging/IATec.Community/npm/:email=arch.dev@iatec.com
 ; end auth token
