@@ -1,0 +1,13 @@
+registry=https://registry.npmjs.org/
+@iatec:registry=https://#{NPM_IATEC_HOST_COMMUNITY}#/npm/registry/
+
+always-auth=true
+
+; begin auth token
+//#{NPM_IATEC_HOST_COMMUNITY}#/npm/registry/:username=#{NPM_Username}#
+//#{NPM_IATEC_HOST_COMMUNITY}#/npm/registry/:_password=#{Base64_Password}#
+//#{NPM_IATEC_HOST_COMMUNITY}#/npm/registry/:email=#{NPM_email}#
+//#{NPM_IATEC_HOST_COMMUNITY}#/npm/:username=#{NPM_Username}#
+//#{NPM_IATEC_HOST_COMMUNITY}#/npm/:_password=#{Base64_Password}#
+//#{NPM_IATEC_HOST_COMMUNITY}#/npm/:email=#{NPM_email}#
+; end auth token

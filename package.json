@@ -1,0 +1,40 @@
+{
+  "name": "@iatec/berean",
+  "version": "0.3.0",
+  "description": "AI-powered code review CLI for Azure DevOps PRs using GitHub Copilot",
+  "main": "dist/index.js",
+  "bin": {
+    "berean": "./dist/index.js"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "azure-devops",
+    "code-review",
+    "ai",
+    "github-copilot",
+    "pull-request",
+    "cli"
+  ],
+  "author": "Matheus Oliveira <matheus.oliveira@iatec.com>",
+  "co-author": "IATec | Platform Team <dev.arch@iatec.com>",
+  "license": "MIT",
+  "dependencies": {
+    "@github/copilot-sdk": "^0.1.23",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "ora": "^8.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
