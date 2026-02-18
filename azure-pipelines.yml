@@ -51,11 +51,6 @@ steps:
       customCommand: "run prepublishOnly"
       workingDir: "$(Build.SourcesDirectory)"
 
-  - task: npmAuthenticate@0
-    displayName: Authenticate
-    inputs:
-      workingFile: .npmrc
-
   - task: Npm@1
     displayName: Publish
     inputs:
