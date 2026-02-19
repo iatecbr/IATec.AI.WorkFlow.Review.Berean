@@ -463,6 +463,40 @@ export function shouldIgnorePR(description: string | undefined): boolean {
 // PR data
 // ---------------------------------------------------------------------------
 
+/**
+ * Return the unique set of file paths touched by the given commit IDs.
+ * Used to scope incremental reviews to only the files changed in new pushes.
+ */
+export async function getFilesChangedInCommits(
+  prInfo: PRInfo,
+  commitIds: string[],
+): Promise<string[]> {
+  const pat = getPat();
+  if (!pat || commitIds.length === 0) return [];
+
+  const { apiBase, headers } = createApiContext(prInfo, pat);
+
+  const perCommit = await Promise.all(
+    commitIds.map(commitId =>
+      fetch(
+        `${apiBase}/git/repositories/${prInfo.repository}/commits/${commitId}/changes?api-version=7.1`,
+        { headers },
+      )
+        .then(r => r.ok ? r.json() as Promise<{ changes: ChangeEntry[] }> : { changes: [] as ChangeEntry[] })
+        .catch(() => ({ changes: [] as ChangeEntry[] })),
+    ),
+  );
+
+  const seen = new Set<string>();
+  for (const { changes } of perCommit) {
+    for (const change of changes) {
+      const p = change.item?.path || change.path;
+      if (p) seen.add(p);
+    }
+  }
+  return [...seen];
+}
+
 export async function getPRCommits(prInfo: PRInfo): Promise<string[]> {
   const pat = getPat();
   if (!pat) return [];

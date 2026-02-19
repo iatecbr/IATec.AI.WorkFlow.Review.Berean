@@ -9,9 +9,9 @@ import {
   PRInfo,
   findBereanComments,
   getPRCommits,
+  getFilesChangedInCommits,
   shouldIgnorePR,
   addReviewedCommitsTag,
-  updatePRComment,
 } from '../services/azure-devops.js';
 import { reviewCode, fetchModels, stopClient, ReviewResult, ReviewIssue } from '../providers/github-copilot.js';
 import { isAuthenticated } from '../services/copilot-auth.js';
@@ -121,13 +121,14 @@ export const reviewCommand = new Command('review')
       allCommits = prCommits;
       
       if (bereanComments.length > 0) {
-        // Get the most recent Berean comment
+        // Aggregate ALL reviewed commits from ALL Berean comments, not just the last one.
+        // This ensures subsequent incremental reviews don't re-review already-covered commits.
+        reviewedCommits = bereanComments.flatMap(c => c.reviewedCommits || []);
         existingReview = bereanComments[bereanComments.length - 1];
-        reviewedCommits = existingReview.reviewedCommits || [];
-        
+
         // Find commits that haven't been reviewed yet
         newCommits = allCommits.filter(c => !reviewedCommits.includes(c));
-        
+
         if (options.skipIfReviewed && newCommits.length === 0) {
           checkSpinner.succeed('PR already reviewed by Berean (no new commits)');
           console.log(chalk.gray('   Use --force to review again'));
@@ -140,7 +141,9 @@ export const reviewCommand = new Command('review')
         }
 
         if (newCommits.length > 0) {
-          checkSpinner.succeed(`Found ${newCommits.length} new commits since last review`);
+          checkSpinner.succeed(
+            `Found ${newCommits.length} new commit(s) since last review (${reviewedCommits.length} already reviewed)`,
+          );
         } else {
           checkSpinner.succeed('No previous Berean review found');
         }
@@ -158,9 +161,11 @@ export const reviewCommand = new Command('review')
     const language = options.language || getDefaultLanguage();
     const model = options.model || getDefaultModel();
 
-    // Determine rule sources: CLI flags take precedence over config/env
+    // Determine rule sources: CLI flags take precedence over config/env.
+    // Each --rules entry may itself be comma-separated (e.g. --rules "path,https://url"),
+    // so we flatMap + split to normalize all cases into a clean array of individual sources.
     const rulesSources: string[] = (options.rules as string[]).length > 0
-      ? (options.rules as string[])
+      ? (options.rules as string[]).flatMap(s => s.split(',').map(p => p.trim()).filter(Boolean))
       : getRulesPaths();
 
     // Load rules with PR context for URL {{query}} substitution
@@ -198,10 +203,37 @@ export const reviewCommand = new Command('review')
       rules = content;
     }
 
+    // For incremental reviews: scope the diff to only files changed in the new commits.
+    // This prevents re-reporting issues that were already covered in previous reviews.
+    let diffToReview = diffResult.diff!;
+    let isIncremental = false;
+
+    if (options.incremental && newCommits.length > 0 && newCommits.length < allCommits.length) {
+      const scopeSpinner = ora(`Scoping diff to ${newCommits.length} new commit(s)...`).start();
+
+      const changedFiles = await getFilesChangedInCommits(prInfo, newCommits);
+
+      if (changedFiles.length > 0) {
+        const scoped = filterDiffToFiles(diffResult.diff!, new Set(changedFiles));
+        // Only use the scoped diff if it contains actual file sections
+        if (scoped.includes('## ')) {
+          diffToReview = scoped;
+          isIncremental = true;
+          scopeSpinner.succeed(
+            `Scoped to ${changedFiles.length} file(s) changed in new commits`,
+          );
+        } else {
+          scopeSpinner.warn('Could not scope diff — reviewing full PR');
+        }
+      } else {
+        scopeSpinner.warn('No file changes found in new commits — reviewing full PR');
+      }
+    }
+
     // Review code
     const reviewSpinner = ora(`Reviewing with ${model}...`).start();
 
-    const reviewResult = await reviewCode(diffResult.diff, {
+    const reviewResult = await reviewCode(diffToReview, {
       model: model,
       language: language,
       rules: rules
@@ -215,9 +247,11 @@ export const reviewCommand = new Command('review')
 
     reviewSpinner.succeed('Review complete!');
 
-    // Post comment to PR if requested
+    // Post comment to PR if requested.
+    // For incremental reviews: tag only the new commits (already-reviewed ones stay in their own comments).
     if (options.postComment) {
-      await postGeneralComment(prInfo, reviewResult, allCommits, existingReview, options.incremental);
+      const commitsToTag = isIncremental ? newCommits : allCommits;
+      await postGeneralComment(prInfo, reviewResult, commitsToTag, isIncremental, newCommits.length);
     }
 
     // Post inline comments if requested
@@ -238,39 +272,28 @@ export const reviewCommand = new Command('review')
   });
 
 async function postGeneralComment(
-  prInfo: PRInfo, 
-  reviewResult: ReviewResult, 
+  prInfo: PRInfo,
+  reviewResult: ReviewResult,
   commitIds: string[] = [],
-  existingReview: { threadId: number; commentId: number } | null = null,
-  incremental: boolean = false
+  incremental: boolean = false,
+  newCommitCount: number = 0,
 ) {
   const spinner = ora('Posting review comment to PR...').start();
 
-  let comment = formatReviewAsMarkdown(reviewResult);
-  
-  // Add commit tracking tag
+  let comment = formatReviewAsMarkdown(reviewResult, incremental, newCommitCount);
+
+  // Embed commit IDs in the comment so subsequent runs can detect what was reviewed
   if (commitIds.length > 0) {
     comment = addReviewedCommitsTag(comment, commitIds);
   }
 
-  let result;
-  
-  if (incremental && existingReview) {
-    // Update existing comment
-    result = await updatePRComment(prInfo, existingReview.threadId, existingReview.commentId, comment);
-    if (result.success) {
-      spinner.succeed('Updated existing review comment!');
-    } else {
-      spinner.fail(`Failed to update comment: ${result.error}`);
-    }
+  // Always create a new comment thread — incremental reviews are separate entries,
+  // not edits of the previous one, so the review history is preserved.
+  const result = await postPRComment(prInfo, comment);
+  if (result.success) {
+    spinner.succeed(incremental ? 'Incremental review posted to PR!' : 'Review posted to PR!');
   } else {
-    // Create new comment
-    result = await postPRComment(prInfo, comment);
-    if (result.success) {
-      spinner.succeed('Review posted to PR!');
-    } else {
-      spinner.fail(`Failed to post comment: ${result.error}`);
-    }
+    spinner.fail(`Failed to post comment: ${result.error}`);
   }
 }
 
@@ -308,8 +331,15 @@ async function postInlineIssues(prInfo: PRInfo, reviewResult: ReviewResult) {
   }
 }
 
-function formatReviewAsMarkdown(reviewResult: ReviewResult): string {
-  let md = '## 🔍 AI Code Review\n\n';
+function formatReviewAsMarkdown(
+  reviewResult: ReviewResult,
+  incremental = false,
+  newCommitCount = 0,
+): string {
+  let md = incremental
+    ? `## 🔄 Incremental Review — ${newCommitCount} new commit(s)\n\n` +
+      `> Only files changed in the latest push are included in this review.\n\n`
+    : '## 🔍 AI Code Review\n\n';
 
   // If we have structured data, use it
   if (reviewResult.summary) {
@@ -448,6 +478,36 @@ function printReviewToTerminal(reviewResult: ReviewResult) {
 function extractFilePathsFromDiff(diff: string): string[] {
   const matches = [...diff.matchAll(/^## (?:Add|Edit|Delete|Rename|Change|SourceRename): (.+)$/mg)];
   return matches.map(m => m[1].trim());
+}
+
+const FILE_SECTION_RE = /\n## (?:Add|Edit|Delete|Rename|Change|SourceRename): /;
+
+/**
+ * Return a copy of the diff containing only the file sections whose path is in `filePaths`.
+ * The PR header (title, branch info) is preserved. The file count is updated accordingly.
+ */
+function filterDiffToFiles(diff: string, filePaths: Set<string>): string {
+  if (filePaths.size === 0) return diff;
+
+  // Find where file sections begin
+  const firstSection = diff.search(FILE_SECTION_RE);
+  if (firstSection === -1) return diff;
+
+  const header = diff.substring(0, firstSection);
+  const body = diff.substring(firstSection);
+
+  // Split into individual file sections (each starts with \n## ...)
+  const sections = body.split(/(?=\n## (?:Add|Edit|Delete|Rename|Change|SourceRename): )/);
+
+  const kept = sections.filter(section => {
+    const match = section.match(/\n## (?:Add|Edit|Delete|Rename|Change|SourceRename): (.+)/);
+    return match ? filePaths.has(match[1].trim()) : false;
+  });
+
+  // Update the "Files changed: N" counter in the header
+  const updatedHeader = header.replace(/Files changed: \d+/, `Files changed: ${kept.length}`);
+
+  return updatedHeader + kept.join('');
 }
 
 async function listModels() {
