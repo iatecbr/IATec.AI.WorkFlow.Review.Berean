@@ -1,9 +1,13 @@
 /**
- * Direct HTTP provider for GitHub Copilot API
- * Bypasses the SDK/CLI subprocess for environments where it doesn't work (CI/CD)
- * 
+ * Direct HTTP provider for GitHub Copilot API.
+ * Bypasses the SDK/CLI subprocess — preferred in CI/CD environments.
+ *
  * Flow: GitHub PAT → Copilot token exchange → Chat Completions API
  */
+
+import { createRequire } from 'module';
+const _require = createRequire(import.meta.url);
+const { version: VERSION } = _require('../../package.json') as { version: string };
 
 interface CopilotToken {
   token: string;
@@ -13,21 +17,19 @@ interface CopilotToken {
 let cachedToken: CopilotToken | null = null;
 
 /**
- * Exchange GitHub PAT for a Copilot API token
+ * Exchange a GitHub PAT for a short-lived Copilot API token (cached).
  */
 async function getCopilotToken(githubToken: string): Promise<string> {
-  // Return cached token if still valid (with 60s buffer)
+  // Reuse cached token if still valid (60 s buffer)
   if (cachedToken && cachedToken.expires_at > Date.now() / 1000 + 60) {
     return cachedToken.token;
   }
 
-  console.error(`[berean-http] Exchanging GitHub token for Copilot token...`);
-  
   const response = await fetch('https://api.github.com/copilot_internal/v2/token', {
     headers: {
       'Authorization': `token ${githubToken}`,
       'Accept': 'application/json',
-      'User-Agent': 'berean-cli/0.2.0',
+      'User-Agent': `berean-cli/${VERSION}`,
     },
   });
 
@@ -38,22 +40,20 @@ async function getCopilotToken(githubToken: string): Promise<string> {
 
   const data = await response.json() as CopilotToken;
   cachedToken = data;
-  console.error(`[berean-http] Copilot token obtained (expires: ${new Date(data.expires_at * 1000).toISOString()})`);
   return data.token;
 }
 
 /**
- * Call Copilot Chat Completions API directly via HTTP
+ * Call the Copilot Chat Completions API with separate system and user messages.
  */
 export async function chatCompletion(
   githubToken: string,
   model: string,
-  prompt: string,
+  systemPrompt: string,
+  userContent: string,
   timeoutMs: number = 300_000,
 ): Promise<string> {
   const copilotToken = await getCopilotToken(githubToken);
-
-  console.error(`[berean-http] Sending chat completion request (model: ${model}, prompt: ${prompt.length} chars)...`);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -65,14 +65,15 @@ export async function chatCompletion(
         'Authorization': `Bearer ${copilotToken}`,
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'User-Agent': 'berean-cli/0.2.0',
-        'Editor-Version': 'berean/0.2.0',
+        'User-Agent': `berean-cli/${VERSION}`,
+        'Editor-Version': `berean/${VERSION}`,
         'Copilot-Integration-Id': 'vscode-chat',
       },
       body: JSON.stringify({
         model,
         messages: [
-          { role: 'user', content: prompt },
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userContent },
         ],
         stream: false,
       }),
@@ -90,9 +91,7 @@ export async function chatCompletion(
       choices?: Array<{ message?: { content?: string } }>;
     };
 
-    const content = data?.choices?.[0]?.message?.content || '';
-    console.error(`[berean-http] Response received (${content.length} chars)`);
-    return content;
+    return data?.choices?.[0]?.message?.content || '';
   } catch (error) {
     clearTimeout(timeoutId);
     if (error instanceof Error && error.name === 'AbortError') {
