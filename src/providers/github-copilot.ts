@@ -317,6 +317,73 @@ Be specific and actionable. If the code is good, return empty issues array and l
   return prompt;
 }
 
+// ─── Rule query generation ────────────────────────────────────────────────────
+
+/**
+ * Ask the LLM to generate search queries relevant to the provided diff.
+ * Used by dynamic URL rule sources (those with a {{query}} placeholder).
+ *
+ * Tries HTTP first (if a GitHub token is available), falls back to the SDK.
+ * Returns up to 5 concise search queries, or [] on failure.
+ */
+export async function generateRuleQueries(diff: string, model: string): Promise<string[]> {
+  const prompt = `Analyze the following code diff and generate 3 to 5 concise search queries to find the most relevant coding guidelines, architectural rules, or best practices that should be applied during code review.
+
+Focus on:
+- Technologies, frameworks, and libraries visible in the code
+- Design patterns and architectural decisions
+- Potential concern areas (security, performance, error handling, naming conventions)
+
+Respond with ONLY a valid JSON array of strings — no markdown, no explanation, just the array.
+Example: ["query about topic A", "query about topic B", "query about topic C"]
+
+CODE DIFF (excerpt):
+${diff.substring(0, 2_000)}`;
+
+  let content = '';
+
+  // Try HTTP first — lighter and faster
+  const token = getGitHubTokenFromAzure();
+  if (token) {
+    try {
+      content = await chatCompletion(token, model, prompt, 30_000);
+    } catch (e) {
+      log(`[berean] generateRuleQueries HTTP failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
+  // SDK fallback
+  if (!content) {
+    try {
+      const client = await getClient();
+      await client.start();
+      const session = await client.createSession({ model, streaming: false });
+      const response = await session.sendAndWait({ prompt }, 30_000);
+      content = (response?.data?.content as string) ?? '';
+    } catch (e) {
+      log(`[berean] generateRuleQueries SDK failed: ${e instanceof Error ? e.message : e}`);
+      return [];
+    }
+  }
+
+  if (!content) return [];
+
+  try {
+    // Extract the first JSON array from the response
+    const match = content.match(/\[[\s\S]*?\]/);
+    if (match) {
+      const parsed = JSON.parse(match[0]) as unknown;
+      return Array.isArray(parsed)
+        ? (parsed as unknown[]).filter(q => typeof q === 'string').slice(0, 5) as string[]
+        : [];
+    }
+  } catch {
+    log(`[berean] generateRuleQueries failed to parse response: ${content.substring(0, 100)}`);
+  }
+
+  return [];
+}
+
 // ─── Model listing ────────────────────────────────────────────────────────────
 
 export interface ModelDetail {

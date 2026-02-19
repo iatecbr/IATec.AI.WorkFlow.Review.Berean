@@ -1,8 +1,6 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import * as fs from 'fs';
-import * as path from 'path';
 import {
   parsePRUrl,
   fetchPRBasicInfo,
@@ -17,11 +15,10 @@ import {
   addReviewedIterationTag,
   updatePRComment,
 } from '../services/azure-devops.js';
-import { reviewCode, fetchModels, stopClient, ReviewResult, ReviewIssue } from '../providers/github-copilot.js';
+import { reviewCode, fetchModels, stopClient, generateRuleQueries, ReviewResult, ReviewIssue } from '../providers/github-copilot.js';
 import { isAuthenticated } from '../services/copilot-auth.js';
 import { getAzureDevOpsPATFromPipeline, getDefaultModel, getDefaultLanguage, getRulesPath } from '../services/credentials.js';
-
-const MAX_RULES_CHARS = 8_000;
+import { parseRuleSources, resolveRules } from '../services/rules.js';
 
 export const reviewCommand = new Command('review')
   .description('Review a Pull Request')
@@ -39,7 +36,12 @@ export const reviewCommand = new Command('review')
   .option('--skip-if-reviewed', 'Skip if PR was already reviewed by Berean')
   .option('--incremental', 'Only review new commits since last Berean review')
   .option('--force', 'Force review even if @berean: ignore is set')
-  .option('--rules <path>', 'Path to project rules/guidelines file (or set BEREAN_RULES env)')
+  .option(
+    '--rules <sources>',
+    'Comma-separated rule sources: file paths, directories, or URLs. ' +
+    'URLs with {{query}} are queried dynamically by the LLM. ' +
+    'E.g.: ./rules.md,https://host/doc?q={{query}} (or set BEREAN_RULES env)',
+  )
   .option('--verbose', 'Show detailed debug output (sets BEREAN_VERBOSE=1)')
   .action(async (url, options) => {
     try {
@@ -192,47 +194,45 @@ export const reviewCommand = new Command('review')
           : `Diff fetched (${diffResult.diff.length} chars)`,
       );
 
-      // ── 4. Load project rules ─────────────────────────────────────────────────
+      // ── 4. Load project rules (after diff — URL sources need the diff for LLM queries) ──
       const language = options.language || getDefaultLanguage();
       const model = options.model || getDefaultModel();
 
       let rules: string | undefined;
-      const rulesPath = options.rules || getRulesPath();
+      const rulesInput = options.rules || getRulesPath();
 
-      if (rulesPath) {
+      if (rulesInput) {
         const rulesSpinner = ora('Loading project rules...').start();
         try {
-          const resolvedPath = path.resolve(rulesPath);
+          const sources = parseRuleSources(rulesInput);
+          const hasUrlSources = sources.some(s => s.type === 'url');
 
-          if (fs.existsSync(resolvedPath)) {
-            const stat = fs.statSync(resolvedPath);
+          if (hasUrlSources) {
+            rulesSpinner.text = 'Loading project rules (fetching from URLs)...';
+          }
 
-            if (stat.isDirectory()) {
-              const files = fs.readdirSync(resolvedPath).filter(f => !f.startsWith('.')).sort();
-              const parts: string[] = [];
-              for (const file of files) {
-                const filePath = path.join(resolvedPath, file);
-                if (fs.statSync(filePath).isFile()) {
-                  parts.push(`### ${file}\n\n${fs.readFileSync(filePath, 'utf-8')}`);
-                }
+          const result = await resolveRules(
+            sources,
+            diffResult.diff,
+            (d) => generateRuleQueries(d, model),
+          );
+
+          if (result.rules) {
+            rules = result.rules;
+
+            const okCount = result.sources.filter(s => s.status === 'ok').length;
+            const warnSources = result.sources.filter(s => s.status === 'warn');
+
+            if (warnSources.length > 0) {
+              rulesSpinner.warn(`Rules loaded from ${okCount} source(s), ${warnSources.length} warning(s)`);
+              for (const w of warnSources) {
+                if (w.message) console.log(chalk.gray(`    ⚠  ${w.label}: ${w.message}`));
               }
-              rules = parts.join('\n\n---\n\n');
-              rulesSpinner.succeed(`Loaded ${files.length} rules file(s) from ${rulesPath}`);
             } else {
-              rules = fs.readFileSync(resolvedPath, 'utf-8');
-              rulesSpinner.succeed(`Loaded rules from ${rulesPath}`);
-            }
-
-            // Guard against oversized rules eating up the context window
-            if (rules && rules.length > MAX_RULES_CHARS) {
-              rulesSpinner.warn(
-                `Rules truncated to ${MAX_RULES_CHARS} chars (original: ${rules.length} chars). ` +
-                `Consider reducing the rules file size.`,
-              );
-              rules = rules.substring(0, MAX_RULES_CHARS) + '\n... (rules truncated)';
+              rulesSpinner.succeed(`Rules loaded from ${okCount} source(s)`);
             }
           } else {
-            rulesSpinner.warn(`Rules path not found: ${rulesPath} (continuing without rules)`);
+            rulesSpinner.warn('No rules content loaded (all sources empty or failed)');
           }
         } catch (error) {
           rulesSpinner.warn(
