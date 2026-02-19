@@ -51,9 +51,17 @@ export interface ModelDetail {
 
 const DEBUG = !!process.env.BEREAN_DEBUG;
 
-/** True when running inside a CI/CD pipeline (Azure DevOps, GitHub Actions, etc.) */
-const IS_CI = !!(
-  process.env.CI ||
+/**
+ * Skip the SDK subprocess only in Azure DevOps pipelines, where the Copilot
+ * CLI child process is known to be unreliable.
+ *
+ * We intentionally do NOT include the generic `CI` flag here, because other
+ * CI environments (GitHub Actions, CircleCI, etc.) can authenticate via the
+ * SDK using GITHUB_TOKEN / GH_TOKEN without issues. Broad CI detection was
+ * breaking those flows by forcing the HTTP path, which requires a different
+ * token-exchange endpoint that those tokens may not support.
+ */
+const SKIP_SDK = !!(
   process.env.TF_BUILD ||
   process.env.SYSTEM_TEAMFOUNDATIONCOLLECTIONURI
 );
@@ -105,14 +113,14 @@ export async function reviewCode(diff: string, options: ReviewOptions = {}): Pro
   const token = getGitHubTokenFromAzure();
   const TIMEOUT_MS = 300_000;
 
-  log(`Model: ${model} | CI: ${IS_CI} | Token: ${token ? 'env var' : 'SDK default'}`);
+  log(`Model: ${model} | Skip SDK: ${SKIP_SDK} | Token: ${token ? 'env var' : 'SDK default'}`);
 
-  // In CI, the SDK subprocess is unreliable — use HTTP directly
-  if (IS_CI) {
+  // In Azure DevOps pipelines the SDK subprocess is unreliable — use HTTP directly.
+  if (SKIP_SDK) {
     if (!token) {
       return { success: false, error: 'No GitHub token found. Set GITHUB_TOKEN, GH_TOKEN, or COPILOT_GITHUB_TOKEN.', model };
     }
-    log('CI detected — using direct HTTP API');
+    log('Azure DevOps detected — using direct HTTP API');
     return reviewViaHttp(token, model, systemPrompt, userContent, TIMEOUT_MS);
   }
 
