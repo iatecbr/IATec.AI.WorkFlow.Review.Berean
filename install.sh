@@ -18,7 +18,8 @@ if [ -d "$INSTALL_DIR" ]; then
   echo "📦 Updating Berean${CURRENT_VERSION:+ (current: v$CURRENT_VERSION)}..."
   echo "  Pulling latest changes..."
   cd "$INSTALL_DIR"
-  git fetch --all
+  git remote set-url origin "$REPO"
+  git fetch origin
   git reset --hard origin/main
 
   # Re-execute the updated install.sh from the repo to ensure latest logic runs
