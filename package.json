@@ -1,6 +1,6 @@
 {
-  "name": "@iatec/berean",
-  "version": "0.3.1",
+  "name": "berean",
+  "version": "0.4.0",
   "description": "AI-powered code review CLI for Azure DevOps PRs using GitHub Copilot",
   "main": "dist/index.js",
   "bin": {
