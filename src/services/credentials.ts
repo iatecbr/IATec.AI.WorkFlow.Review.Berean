@@ -81,19 +81,14 @@ export function getDefaultLanguageSource(): string {
 }
 
 /**
- * Get rules sources from env or config.
- * Supports comma-separated values for multiple sources.
- * Priority: BEREAN_RULES → BEREANRULES → config file → []
- *
- * Each entry can be a file path, directory path, or URL (with {{query}} placeholder).
- * Example: BEREAN_RULES="./docs,https://example.com/kb?q={{query}}"
+ * Get rules file path from env or config
+ * Priority: BEREAN_RULES → BEREANRULES → config file → null
  */
-export function getRulesPaths(): string[] {
-  const raw = process.env.BEREAN_RULES
+export function getRulesPath(): string | null {
+  return process.env.BEREAN_RULES
     || process.env.BEREANRULES
-    || getConfig().rules_path;
-  if (!raw) return [];
-  return raw.split(',').map(s => s.trim()).filter(Boolean);
+    || getConfig().rules_path
+    || null;
 }
 
 /**
