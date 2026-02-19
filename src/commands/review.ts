@@ -1,23 +1,22 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import * as fs from 'fs';
-import * as path from 'path';
-import { 
-  parsePRUrl, 
-  fetchPRDiff, 
-  postPRComment, 
-  postInlineComments, 
+import {
+  parsePRUrl,
+  fetchPRDiff,
+  postPRComment,
+  postInlineComments,
   PRInfo,
   findBereanComments,
   getPRCommits,
   shouldIgnorePR,
   addReviewedCommitsTag,
-  updatePRComment
+  updatePRComment,
 } from '../services/azure-devops.js';
 import { reviewCode, fetchModels, stopClient, ReviewResult, ReviewIssue } from '../providers/github-copilot.js';
 import { isAuthenticated } from '../services/copilot-auth.js';
-import { getAzureDevOpsPATFromPipeline, getDefaultModel, getDefaultLanguage, getRulesPath } from '../services/credentials.js';
+import { getAzureDevOpsPATFromPipeline, getDefaultModel, getDefaultLanguage, getRulesPaths } from '../services/credentials.js';
+import { loadRules } from '../services/rules.js';
 
 export const reviewCommand = new Command('review')
   .description('Review a Pull Request')
@@ -35,7 +34,12 @@ export const reviewCommand = new Command('review')
   .option('--skip-if-reviewed', 'Skip if PR was already reviewed by Berean')
   .option('--incremental', 'Only review new commits since last Berean review')
   .option('--force', 'Force review even if @berean: ignore is set')
-  .option('--rules <path>', 'Path to project rules/guidelines file (or set BEREAN_RULES env)')
+  .option(
+    '--rules <source>',
+    'Rules source: file, directory, or URL with {{query}} placeholder. Repeatable.',
+    (val: string, prev: string[]) => [...prev, val],
+    [] as string[],
+  )
   .action(async (url, options) => {
     try {
     // List models
@@ -154,46 +158,44 @@ export const reviewCommand = new Command('review')
     const language = options.language || getDefaultLanguage();
     const model = options.model || getDefaultModel();
 
-    // Load project rules if specified
+    // Determine rule sources: CLI flags take precedence over config/env
+    const rulesSources: string[] = (options.rules as string[]).length > 0
+      ? (options.rules as string[])
+      : getRulesPaths();
+
+    // Load rules with PR context for URL {{query}} substitution
     let rules: string | undefined;
-    const rulesPath = options.rules || getRulesPath();
-    
-    if (rulesPath) {
-      const rulesSpinner = ora('Loading project rules...').start();
-      try {
-        // Support directory (read all files) or single file
-        const resolvedPath = path.resolve(rulesPath);
-        
-        if (fs.existsSync(resolvedPath)) {
-          const stat = fs.statSync(resolvedPath);
-          
-          if (stat.isDirectory()) {
-            // Read all files in the directory
-            const files = fs.readdirSync(resolvedPath)
-              .filter(f => !f.startsWith('.'))
-              .sort();
-            
-            const parts: string[] = [];
-            for (const file of files) {
-              const filePath = path.join(resolvedPath, file);
-              const fileStat = fs.statSync(filePath);
-              if (fileStat.isFile()) {
-                const content = fs.readFileSync(filePath, 'utf-8');
-                parts.push(`### ${file}\n\n${content}`);
-              }
-            }
-            rules = parts.join('\n\n---\n\n');
-            rulesSpinner.succeed(`Loaded ${files.length} rules file(s) from ${rulesPath}`);
+    if (rulesSources.length > 0) {
+      const rulesSpinner = ora(`Loading rules from ${rulesSources.length} source(s)...`).start();
+
+      const filePaths = extractFilePathsFromDiff(diffResult.diff!);
+      const { content, results } = await loadRules(rulesSources, {
+        prTitle: diffResult.prDetails?.title,
+        filePaths,
+      });
+
+      const ok = results.filter(r => r.ok);
+      const failed = results.filter(r => !r.ok);
+
+      if (ok.length > 0) {
+        rulesSpinner.succeed(
+          `Rules loaded: ${ok.length} source(s)${failed.length > 0 ? `, ${failed.length} failed` : ''}`,
+        );
+        for (const r of results) {
+          if (r.ok) {
+            console.log(chalk.gray(`  ✓ ${r.label}`));
           } else {
-            rules = fs.readFileSync(resolvedPath, 'utf-8');
-            rulesSpinner.succeed(`Loaded rules from ${rulesPath}`);
+            console.log(chalk.yellow(`  ⚠ ${r.label}: ${r.error}`));
           }
-        } else {
-          rulesSpinner.warn(`Rules path not found: ${rulesPath} (continuing without rules)`);
         }
-      } catch (error) {
-        rulesSpinner.warn(`Failed to load rules: ${error instanceof Error ? error.message : 'Unknown error'} (continuing without rules)`);
+      } else {
+        rulesSpinner.warn('Could not load rules from any source (continuing without rules)');
+        for (const r of failed) {
+          console.log(chalk.yellow(`  ✗ ${r.label}: ${r.error}`));
+        }
       }
+
+      rules = content;
     }
 
     // Review code
@@ -437,6 +439,15 @@ function printReviewToTerminal(reviewResult: ReviewResult) {
   }
 
   console.log(chalk.blue.bold('═'.repeat(60)));
+}
+
+/**
+ * Extract changed file paths from the formatted diff string.
+ * Used to build the context for URL-based rules {{query}} substitution.
+ */
+function extractFilePathsFromDiff(diff: string): string[] {
+  const matches = [...diff.matchAll(/^## (?:Add|Edit|Delete|Rename|Change|SourceRename): (.+)$/mg)];
+  return matches.map(m => m[1].trim());
 }
 
 async function listModels() {
