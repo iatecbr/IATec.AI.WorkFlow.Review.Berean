@@ -56,8 +56,10 @@ npm run build 2>&1 | tail -3
 echo "  Linking globally..."
 npm link 2>&1 | tail -2
 
-## Ensure binary has execution permission
-#chmod +x "$(which berean)" 2>/dev/null || true
+# Ensure binary has full execution permission
+chmod +x "$INSTALL_DIR/dist/index.js" 2>/dev/null || true
+chmod +x "$(npm bin -g)/berean" 2>/dev/null || true
+chmod +x "$(which berean 2>/dev/null)" 2>/dev/null || true
 
 echo ""
 if [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" != "$NEW_VERSION" ]; then
