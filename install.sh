@@ -18,7 +18,15 @@ if [ -d "$INSTALL_DIR" ]; then
   echo "📦 Updating Berean${CURRENT_VERSION:+ (current: v$CURRENT_VERSION)}..."
   echo "  Pulling latest changes..."
   cd "$INSTALL_DIR"
-  git pull --ff-only
+  git fetch --all
+  git reset --hard origin/main
+
+  # Re-execute the updated install.sh from the repo to ensure latest logic runs
+  # Only re-exec if we are NOT already the repo's own install.sh
+  REPO_INSTALL="$INSTALL_DIR/install.sh"
+  if [ "$(realpath "$0" 2>/dev/null || echo "$0")" != "$(realpath "$REPO_INSTALL" 2>/dev/null || echo "$REPO_INSTALL")" ]; then
+    exec bash "$REPO_INSTALL"
+  fi
 else
   echo "📦 Installing Berean..."
   echo "  Cloning from GitHub..."
