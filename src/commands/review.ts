@@ -3,21 +3,25 @@ import chalk from 'chalk';
 import ora from 'ora';
 import * as fs from 'fs';
 import * as path from 'path';
-import { 
-  parsePRUrl, 
-  fetchPRDiff, 
-  postPRComment, 
-  postInlineComments, 
+import {
+  parsePRUrl,
+  fetchPRBasicInfo,
+  fetchPRDiff,
+  postPRComment,
+  postInlineComments,
   PRInfo,
   findBereanComments,
   getPRCommits,
   shouldIgnorePR,
   addReviewedCommitsTag,
-  updatePRComment
+  addReviewedIterationTag,
+  updatePRComment,
 } from '../services/azure-devops.js';
 import { reviewCode, fetchModels, stopClient, ReviewResult, ReviewIssue } from '../providers/github-copilot.js';
 import { isAuthenticated } from '../services/copilot-auth.js';
 import { getAzureDevOpsPATFromPipeline, getDefaultModel, getDefaultLanguage, getRulesPath } from '../services/credentials.js';
+
+const MAX_RULES_CHARS = 8_000;
 
 export const reviewCommand = new Command('review')
   .description('Review a Pull Request')
@@ -36,234 +40,283 @@ export const reviewCommand = new Command('review')
   .option('--incremental', 'Only review new commits since last Berean review')
   .option('--force', 'Force review even if @berean: ignore is set')
   .option('--rules <path>', 'Path to project rules/guidelines file (or set BEREAN_RULES env)')
+  .option('--verbose', 'Show detailed debug output (sets BEREAN_VERBOSE=1)')
   .action(async (url, options) => {
     try {
-    // List models
-    if (options.listModels) {
-      await listModels();
-      return;
-    }
+      // Enable verbose logging early so providers pick it up
+      if (options.verbose) {
+        process.env.BEREAN_VERBOSE = '1';
+      }
 
-    // Check authentication
-    if (!isAuthenticated()) {
-      console.log(chalk.red('✗ Not authenticated. Run: berean auth login'));
-      process.exit(1);
-    }
+      // List models
+      if (options.listModels) {
+        await listModels();
+        return;
+      }
 
-    // Check Azure DevOps PAT
-    if (!getAzureDevOpsPATFromPipeline()) {
-      console.log(chalk.red('✗ Azure DevOps PAT not configured.'));
-      console.log(chalk.gray('  Set AZURE_DEVOPS_PAT environment variable or run:'));
-      console.log(chalk.gray('  berean config set azure-pat <your-pat>'));
-      process.exit(1);
-    }
-
-    // Parse PR info
-    let prInfo: PRInfo | null = null;
-    
-    if (url) {
-      prInfo = parsePRUrl(url);
-      if (!prInfo) {
-        console.log(chalk.red('✗ Invalid Azure DevOps PR URL'));
-        console.log(chalk.gray('  Expected format: https://dev.azure.com/{org}/{project}/_git/{repo}/pullrequest/{id}'));
+      // Check authentication
+      if (!isAuthenticated()) {
+        console.log(chalk.red('✗ Not authenticated. Run: berean auth login'));
         process.exit(1);
       }
-    } else if (options.org && options.project && options.repo && options.pr) {
-      prInfo = {
-        organization: options.org,
-        project: options.project,
-        repository: options.repo,
-        pullRequestId: parseInt(options.pr, 10)
-      };
-    } else {
-      console.log(chalk.red('✗ Please provide a PR URL or use --org, --project, --repo, --pr flags'));
-      process.exit(1);
-    }
 
-    // Fetch PR diff first (we need description to check for ignore)
-    const diffSpinner = ora('Fetching PR diff...').start();
-    
-    const diffResult = await fetchPRDiff(prInfo);
-    
-    if (!diffResult.success || !diffResult.diff) {
-      diffSpinner.fail('Failed to fetch PR diff');
-      console.log(chalk.red(`  ${diffResult.error}`));
-      process.exit(1);
-    }
-
-    diffSpinner.succeed(`Fetched PR: ${diffResult.prDetails?.title || 'Unknown'}`);
-
-    // Check for @berean: ignore in PR description
-    if (!options.force && shouldIgnorePR(diffResult.prDetails?.description)) {
-      console.log(chalk.yellow('⏭️  Skipped: PR description contains @berean: ignore'));
-      console.log(chalk.gray('   Use --force to review anyway'));
-      process.exit(0);
-    }
-
-    // Check for existing Berean reviews and commits
-    let existingReview = null;
-    let reviewedCommits: string[] = [];
-    let allCommits: string[] = [];
-    let newCommits: string[] = [];
-
-    if (options.skipIfReviewed || options.incremental) {
-      const checkSpinner = ora('Checking for existing reviews...').start();
-      
-      const [bereanComments, prCommits] = await Promise.all([
-        findBereanComments(prInfo),
-        getPRCommits(prInfo)
-      ]);
-
-      allCommits = prCommits;
-      
-      if (bereanComments.length > 0) {
-        // Get the most recent Berean comment
-        existingReview = bereanComments[bereanComments.length - 1];
-        reviewedCommits = existingReview.reviewedCommits || [];
-        
-        // Find commits that haven't been reviewed yet
-        newCommits = allCommits.filter(c => !reviewedCommits.includes(c));
-        
-        if (options.skipIfReviewed && newCommits.length === 0) {
-          checkSpinner.succeed('PR already reviewed by Berean (no new commits)');
-          console.log(chalk.gray('   Use --force to review again'));
-          process.exit(0);
-        }
-
-        if (options.incremental && newCommits.length === 0) {
-          checkSpinner.succeed('No new commits since last review');
-          process.exit(0);
-        }
-
-        if (newCommits.length > 0) {
-          checkSpinner.succeed(`Found ${newCommits.length} new commits since last review`);
-        } else {
-          checkSpinner.succeed('No previous Berean review found');
-        }
-      } else {
-        checkSpinner.succeed('No previous Berean review found');
-        newCommits = allCommits;
+      // Check Azure DevOps PAT
+      if (!getAzureDevOpsPATFromPipeline()) {
+        console.log(chalk.red('✗ Azure DevOps PAT not configured.'));
+        console.log(chalk.gray('  Set AZURE_DEVOPS_PAT environment variable or run:'));
+        console.log(chalk.gray('  berean config set azure-pat <your-pat>'));
+        process.exit(1);
       }
-    } else {
-      // Just get commits for tagging
-      allCommits = await getPRCommits(prInfo);
-      newCommits = allCommits;
-    }
 
-    // Get config for defaults
-    const language = options.language || getDefaultLanguage();
-    const model = options.model || getDefaultModel();
+      // Parse PR info
+      let prInfo: PRInfo | null = null;
 
-    // Load project rules if specified
-    let rules: string | undefined;
-    const rulesPath = options.rules || getRulesPath();
-    
-    if (rulesPath) {
-      const rulesSpinner = ora('Loading project rules...').start();
-      try {
-        // Support directory (read all files) or single file
-        const resolvedPath = path.resolve(rulesPath);
-        
-        if (fs.existsSync(resolvedPath)) {
-          const stat = fs.statSync(resolvedPath);
-          
-          if (stat.isDirectory()) {
-            // Read all files in the directory
-            const files = fs.readdirSync(resolvedPath)
-              .filter(f => !f.startsWith('.'))
-              .sort();
-            
-            const parts: string[] = [];
-            for (const file of files) {
-              const filePath = path.join(resolvedPath, file);
-              const fileStat = fs.statSync(filePath);
-              if (fileStat.isFile()) {
-                const content = fs.readFileSync(filePath, 'utf-8');
-                parts.push(`### ${file}\n\n${content}`);
-              }
-            }
-            rules = parts.join('\n\n---\n\n');
-            rulesSpinner.succeed(`Loaded ${files.length} rules file(s) from ${rulesPath}`);
+      if (url) {
+        prInfo = parsePRUrl(url);
+        if (!prInfo) {
+          console.log(chalk.red('✗ Invalid Azure DevOps PR URL'));
+          console.log(chalk.gray('  Expected format: https://dev.azure.com/{org}/{project}/_git/{repo}/pullrequest/{id}'));
+          process.exit(1);
+        }
+      } else if (options.org && options.project && options.repo && options.pr) {
+        prInfo = {
+          organization: options.org,
+          project: options.project,
+          repository: options.repo,
+          pullRequestId: parseInt(options.pr, 10),
+        };
+      } else {
+        console.log(chalk.red('✗ Please provide a PR URL or use --org, --project, --repo, --pr flags'));
+        process.exit(1);
+      }
+
+      // ── 1. Lightweight PR details fetch (for @berean: ignore check) ──────────
+      const infoSpinner = ora('Fetching PR info...').start();
+      const prBasicInfo = await fetchPRBasicInfo(prInfo);
+
+      if (!prBasicInfo.success || !prBasicInfo.prDetails) {
+        infoSpinner.fail('Failed to fetch PR info');
+        console.log(chalk.red(`  ${prBasicInfo.error}`));
+        process.exit(1);
+      }
+
+      infoSpinner.succeed(`PR: ${prBasicInfo.prDetails.title}`);
+
+      // Check for @berean: ignore in PR description
+      if (!options.force && shouldIgnorePR(prBasicInfo.prDetails.description)) {
+        console.log(chalk.yellow('⏭️  Skipped: PR description contains @berean: ignore'));
+        console.log(chalk.gray('   Use --force to review anyway'));
+        process.exit(0);
+      }
+
+      // ── 2. Check for existing Berean reviews and determine scope ─────────────
+      let existingReview: { threadId: number; commentId: number; reviewedIterationId?: number; content: string } | null = null;
+      let reviewedCommits: string[] = [];
+      let allCommits: string[] = [];
+      let newCommits: string[] = [];
+      let fromIterationId: number | undefined;
+
+      if (options.skipIfReviewed || options.incremental) {
+        const checkSpinner = ora('Checking for existing reviews...').start();
+
+        const [bereanComments, prCommits] = await Promise.all([
+          findBereanComments(prInfo),
+          getPRCommits(prInfo),
+        ]);
+
+        allCommits = prCommits;
+
+        if (bereanComments.length > 0) {
+          // Use the most recent Berean comment
+          const latest = bereanComments[bereanComments.length - 1];
+          existingReview = {
+            threadId: latest.threadId,
+            commentId: latest.commentId,
+            reviewedIterationId: latest.reviewedIterationId,
+            content: latest.content,
+          };
+          reviewedCommits = latest.reviewedCommits ?? [];
+
+          newCommits = allCommits.filter(c => !reviewedCommits.includes(c));
+
+          if (options.skipIfReviewed && newCommits.length === 0) {
+            checkSpinner.succeed('PR already reviewed by Berean (no new commits)');
+            console.log(chalk.gray('   Use --force to review again'));
+            process.exit(0);
+          }
+
+          if (options.incremental && newCommits.length === 0) {
+            checkSpinner.succeed('No new commits since last review');
+            process.exit(0);
+          }
+
+          // For incremental diff: use the iteration stored in the last review
+          if (options.incremental && existingReview.reviewedIterationId) {
+            fromIterationId = existingReview.reviewedIterationId;
+          }
+
+          if (newCommits.length > 0) {
+            const iterNote = fromIterationId ? ` (from iteration ${fromIterationId})` : '';
+            checkSpinner.succeed(`Found ${newCommits.length} new commits since last review${iterNote}`);
           } else {
-            rules = fs.readFileSync(resolvedPath, 'utf-8');
-            rulesSpinner.succeed(`Loaded rules from ${rulesPath}`);
+            checkSpinner.succeed('No previous Berean review found');
           }
         } else {
-          rulesSpinner.warn(`Rules path not found: ${rulesPath} (continuing without rules)`);
+          checkSpinner.succeed('No previous Berean review found');
+          newCommits = allCommits;
         }
-      } catch (error) {
-        rulesSpinner.warn(`Failed to load rules: ${error instanceof Error ? error.message : 'Unknown error'} (continuing without rules)`);
+      } else {
+        // Just get commits for tagging
+        allCommits = await getPRCommits(prInfo);
+        newCommits = allCommits;
       }
-    }
 
-    // Review code
-    const reviewSpinner = ora(`Reviewing with ${model}...`).start();
+      // ── 3. Fetch diff (incremental scope when applicable) ────────────────────
+      const diffSpinner = ora(
+        fromIterationId
+          ? `Fetching incremental diff (iteration ${fromIterationId} → latest)...`
+          : 'Fetching PR diff...',
+      ).start();
 
-    const reviewResult = await reviewCode(diffResult.diff, {
-      model: model,
-      language: language,
-      rules: rules
-    });
+      const diffResult = await fetchPRDiff(prInfo, { fromIterationId });
 
-    if (!reviewResult.success) {
-      reviewSpinner.fail('Review failed');
-      console.log(chalk.red(`  ${reviewResult.error}`));
-      process.exit(1);
-    }
+      if (!diffResult.success || !diffResult.diff) {
+        diffSpinner.fail('Failed to fetch PR diff');
+        console.log(chalk.red(`  ${diffResult.error}`));
+        process.exit(1);
+      }
 
-    reviewSpinner.succeed('Review complete!');
+      diffSpinner.succeed(
+        fromIterationId
+          ? `Incremental diff fetched (${diffResult.diff.length} chars)`
+          : `Diff fetched (${diffResult.diff.length} chars)`,
+      );
 
-    // Post comment to PR if requested
-    if (options.postComment) {
-      await postGeneralComment(prInfo, reviewResult, allCommits, existingReview, options.incremental);
-    }
+      // ── 4. Load project rules ─────────────────────────────────────────────────
+      const language = options.language || getDefaultLanguage();
+      const model = options.model || getDefaultModel();
 
-    // Post inline comments if requested
-    if (options.inline) {
-      await postInlineIssues(prInfo, reviewResult);
-    }
+      let rules: string | undefined;
+      const rulesPath = options.rules || getRulesPath();
 
-    // Output result
-    if (options.json) {
-      console.log(JSON.stringify(reviewResult, null, 2));
-    } else {
-      printReviewToTerminal(reviewResult);
-    }
+      if (rulesPath) {
+        const rulesSpinner = ora('Loading project rules...').start();
+        try {
+          const resolvedPath = path.resolve(rulesPath);
 
+          if (fs.existsSync(resolvedPath)) {
+            const stat = fs.statSync(resolvedPath);
+
+            if (stat.isDirectory()) {
+              const files = fs.readdirSync(resolvedPath).filter(f => !f.startsWith('.')).sort();
+              const parts: string[] = [];
+              for (const file of files) {
+                const filePath = path.join(resolvedPath, file);
+                if (fs.statSync(filePath).isFile()) {
+                  parts.push(`### ${file}\n\n${fs.readFileSync(filePath, 'utf-8')}`);
+                }
+              }
+              rules = parts.join('\n\n---\n\n');
+              rulesSpinner.succeed(`Loaded ${files.length} rules file(s) from ${rulesPath}`);
+            } else {
+              rules = fs.readFileSync(resolvedPath, 'utf-8');
+              rulesSpinner.succeed(`Loaded rules from ${rulesPath}`);
+            }
+
+            // Guard against oversized rules eating up the context window
+            if (rules && rules.length > MAX_RULES_CHARS) {
+              rulesSpinner.warn(
+                `Rules truncated to ${MAX_RULES_CHARS} chars (original: ${rules.length} chars). ` +
+                `Consider reducing the rules file size.`,
+              );
+              rules = rules.substring(0, MAX_RULES_CHARS) + '\n... (rules truncated)';
+            }
+          } else {
+            rulesSpinner.warn(`Rules path not found: ${rulesPath} (continuing without rules)`);
+          }
+        } catch (error) {
+          rulesSpinner.warn(
+            `Failed to load rules: ${error instanceof Error ? error.message : 'Unknown error'} (continuing without rules)`,
+          );
+        }
+      }
+
+      // ── 5. Review code ────────────────────────────────────────────────────────
+      const reviewSpinner = ora(`Reviewing with ${model}...`).start();
+
+      const reviewResult = await reviewCode(diffResult.diff, { model, language, rules });
+
+      if (!reviewResult.success) {
+        reviewSpinner.fail('Review failed');
+        console.log(chalk.red(`  ${reviewResult.error}`));
+        process.exit(1);
+      }
+
+      reviewSpinner.succeed('Review complete!');
+
+      // ── 6. Post comments ──────────────────────────────────────────────────────
+      if (options.postComment) {
+        await postGeneralComment(
+          prInfo,
+          reviewResult,
+          allCommits,
+          diffResult.currentIterationId,
+          existingReview,
+          options.incremental,
+        );
+      }
+
+      if (options.inline) {
+        await postInlineIssues(prInfo, reviewResult);
+      }
+
+      // ── 7. Output ─────────────────────────────────────────────────────────────
+      if (options.json) {
+        console.log(JSON.stringify(reviewResult, null, 2));
+      } else {
+        printReviewToTerminal(reviewResult);
+      }
     } finally {
       await stopClient();
     }
   });
 
+// ─── Comment helpers ──────────────────────────────────────────────────────────
+
 async function postGeneralComment(
-  prInfo: PRInfo, 
-  reviewResult: ReviewResult, 
+  prInfo: PRInfo,
+  reviewResult: ReviewResult,
   commitIds: string[] = [],
-  existingReview: { threadId: number; commentId: number } | null = null,
-  incremental: boolean = false
+  currentIterationId: number | undefined,
+  existingReview: { threadId: number; commentId: number; content: string } | null = null,
+  incremental = false,
 ) {
   const spinner = ora('Posting review comment to PR...').start();
 
-  let comment = formatReviewAsMarkdown(reviewResult);
-  
-  // Add commit tracking tag
+  // Build the new review markdown
+  let newComment = formatReviewAsMarkdown(reviewResult);
+
+  // Embed tracking tags
   if (commitIds.length > 0) {
-    comment = addReviewedCommitsTag(comment, commitIds);
+    newComment = addReviewedCommitsTag(newComment, commitIds);
+  }
+  if (currentIterationId) {
+    newComment = addReviewedIterationTag(newComment, currentIterationId);
   }
 
   let result;
-  
+
   if (incremental && existingReview) {
-    // Update existing comment
-    result = await updatePRComment(prInfo, existingReview.threadId, existingReview.commentId, comment);
+    // Preserve the previous review inside a collapsible <details> block
+    const fullComment = buildIncrementalComment(newComment, existingReview.content);
+    result = await updatePRComment(prInfo, existingReview.threadId, existingReview.commentId, fullComment);
     if (result.success) {
-      spinner.succeed('Updated existing review comment!');
+      spinner.succeed('Updated existing review comment with new findings!');
     } else {
       spinner.fail(`Failed to update comment: ${result.error}`);
     }
   } else {
-    // Create new comment
-    result = await postPRComment(prInfo, comment);
+    result = await postPRComment(prInfo, newComment);
     if (result.success) {
       spinner.succeed('Review posted to PR!');
     } else {
@@ -272,9 +325,27 @@ async function postGeneralComment(
   }
 }
 
+/**
+ * Wrap previous review content in a collapsible section and prepend the new review.
+ */
+function buildIncrementalComment(newContent: string, previousContent: string): string {
+  // Strip hidden Berean tags from previous content to avoid nested tags
+  const cleanPrevious = previousContent
+    .replace(/<!-- berean-review -->/g, '')
+    .replace(/<!-- berean-commits:.*?:berean-commits -->/gs, '')
+    .replace(/<!-- berean-iteration:\d+:berean-iteration -->/g, '')
+    .trim();
+
+  const timestamp = new Date().toISOString().split('T')[0];
+
+  return (
+    `${newContent}\n\n` +
+    `<details>\n<summary>📜 Previous review (${timestamp})</summary>\n\n${cleanPrevious}\n\n</details>`
+  );
+}
+
 async function postInlineIssues(prInfo: PRInfo, reviewResult: ReviewResult) {
-  const issues = reviewResult.issues || [];
-  const inlineIssues = issues.filter(i => i.file && i.line);
+  const inlineIssues = (reviewResult.issues ?? []).filter(i => i.file && i.line);
 
   if (inlineIssues.length === 0) {
     console.log(chalk.yellow('  No issues with file/line info for inline comments'));
@@ -286,7 +357,7 @@ async function postInlineIssues(prInfo: PRInfo, reviewResult: ReviewResult) {
   const comments = inlineIssues.map(issue => ({
     filePath: issue.file!,
     line: issue.line!,
-    content: formatIssueAsMarkdown(issue)
+    content: formatIssueAsMarkdown(issue),
   }));
 
   const result = await postInlineComments(prInfo, comments);
@@ -306,34 +377,19 @@ async function postInlineIssues(prInfo: PRInfo, reviewResult: ReviewResult) {
   }
 }
 
+// ─── Formatting ───────────────────────────────────────────────────────────────
+
 function formatReviewAsMarkdown(reviewResult: ReviewResult): string {
   let md = '## 🔍 AI Code Review\n\n';
 
-  // If we have structured data, use it
   if (reviewResult.summary) {
     md += `### Summary\n${reviewResult.summary}\n\n`;
   }
 
   if (reviewResult.issues && reviewResult.issues.length > 0) {
     md += '### Issues Found\n\n';
-    
-    for (const issue of reviewResult.issues) {
-      const icon = issue.severity === 'critical' ? '🔴' : 
-                   issue.severity === 'warning' ? '🟡' : '🔵';
-      
-      md += `${icon} **${issue.severity.toUpperCase()}**`;
-      if (issue.file) {
-        md += ` - \`${issue.file}${issue.line ? `:${issue.line}` : ''}\``;
-      }
-      md += `\n${issue.message}\n`;
-      
-      if (issue.suggestion) {
-        md += `\n\`\`\`suggestion\n${issue.suggestion}\n\`\`\`\n`;
-      }
-      md += '\n';
-    }
+    md += formatIssuesGroupedByFile(reviewResult.issues);
   } else if (!reviewResult.summary && reviewResult.review) {
-    // No structured data, use raw review
     md += reviewResult.review + '\n\n';
   } else {
     md += '✅ **No issues found!** Code looks good.\n\n';
@@ -360,16 +416,65 @@ function formatReviewAsMarkdown(reviewResult: ReviewResult): string {
   return md;
 }
 
+/**
+ * Render issues grouped by file for cleaner markdown output.
+ */
+function formatIssuesGroupedByFile(issues: ReviewIssue[]): string {
+  // Separate file-specific issues from general ones
+  const byFile = new Map<string, ReviewIssue[]>();
+  const general: ReviewIssue[] = [];
+
+  for (const issue of issues) {
+    if (issue.file) {
+      if (!byFile.has(issue.file)) byFile.set(issue.file, []);
+      byFile.get(issue.file)!.push(issue);
+    } else {
+      general.push(issue);
+    }
+  }
+
+  let md = '';
+
+  // File-grouped issues
+  for (const [file, fileIssues] of byFile) {
+    md += `#### \`${file}\`\n\n`;
+    for (const issue of fileIssues) {
+      md += renderIssueMarkdown(issue);
+    }
+  }
+
+  // General issues (no specific file)
+  if (general.length > 0) {
+    if (byFile.size > 0) md += '#### General\n\n';
+    for (const issue of general) {
+      md += renderIssueMarkdown(issue);
+    }
+  }
+
+  return md;
+}
+
+function renderIssueMarkdown(issue: ReviewIssue): string {
+  const icon = issue.severity === 'critical' ? '🔴' : issue.severity === 'warning' ? '🟡' : '🔵';
+
+  let md = `${icon} **${issue.severity.toUpperCase()}**`;
+  if (issue.line) md += ` — linha ${issue.line}`;
+  md += `\n${issue.message}\n`;
+
+  if (issue.suggestion) {
+    md += `\n\`\`\`suggestion\n${issue.suggestion}\n\`\`\`\n`;
+  }
+
+  md += '\n';
+  return md;
+}
+
 function formatIssueAsMarkdown(issue: ReviewIssue): string {
-  const icon = issue.severity === 'critical' ? '🔴' : 
-               issue.severity === 'warning' ? '🟡' : '🔵';
-  
+  const icon = issue.severity === 'critical' ? '🔴' : issue.severity === 'warning' ? '🟡' : '🔵';
   let md = `${icon} **${issue.severity.toUpperCase()}**: ${issue.message}`;
-  
   if (issue.suggestion) {
     md += `\n\n\`\`\`suggestion\n${issue.suggestion}\n\`\`\``;
   }
-
   return md;
 }
 
@@ -385,36 +490,40 @@ function printReviewToTerminal(reviewResult: ReviewResult) {
 
   if (reviewResult.issues && reviewResult.issues.length > 0) {
     console.log(chalk.white.bold('Issues Found:\n'));
-    
+
+    // Group by file in terminal output too
+    const byFile = new Map<string, ReviewIssue[]>();
+    const general: ReviewIssue[] = [];
     for (const issue of reviewResult.issues) {
-      let icon, color;
-      switch (issue.severity) {
-        case 'critical':
-          icon = '🔴';
-          color = chalk.red;
-          break;
-        case 'warning':
-          icon = '🟡';
-          color = chalk.yellow;
-          break;
-        default:
-          icon = '🔵';
-          color = chalk.blue;
+      if (issue.file) {
+        if (!byFile.has(issue.file)) byFile.set(issue.file, []);
+        byFile.get(issue.file)!.push(issue);
+      } else {
+        general.push(issue);
       }
+    }
+
+    const printIssue = (issue: ReviewIssue) => {
+      const [icon, color] =
+        issue.severity === 'critical'
+          ? ['🔴', chalk.red]
+          : issue.severity === 'warning'
+          ? ['🟡', chalk.yellow]
+          : ['🔵', chalk.blue];
 
       console.log(`${icon} ${color.bold(issue.severity.toUpperCase())}`);
-      if (issue.file) {
-        console.log(chalk.gray(`   ${issue.file}${issue.line ? `:${issue.line}` : ''}`));
-      }
+      if (issue.file) console.log(chalk.gray(`   ${issue.file}${issue.line ? `:${issue.line}` : ''}`));
       console.log(chalk.white(`   ${issue.message}`));
-      
-      if (issue.suggestion) {
-        console.log(chalk.green(`   Suggestion: ${issue.suggestion}`));
-      }
+      if (issue.suggestion) console.log(chalk.green(`   Suggestion: ${issue.suggestion}`));
       console.log();
+    };
+
+    for (const [file, fileIssues] of byFile) {
+      console.log(chalk.cyan.bold(`  ${file}`));
+      fileIssues.forEach(printIssue);
     }
+    general.forEach(printIssue);
   } else if (reviewResult.review && !reviewResult.summary) {
-    // Raw review output (non-JSON response)
     console.log(reviewResult.review);
   } else {
     console.log(chalk.green('✓ No issues found! Code looks good.'));

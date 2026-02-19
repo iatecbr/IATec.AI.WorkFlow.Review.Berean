@@ -8,6 +8,11 @@ import { updateCommand } from './commands/update.js';
 import { modelsCommand } from './commands/models.js';
 import { stopClient } from './providers/github-copilot.js';
 
+// Enable verbose logging early so providers receive the flag before any action runs
+if (process.argv.includes('--verbose')) {
+  process.env.BEREAN_VERBOSE = '1';
+}
+
 const program = new Command();
 
 program
