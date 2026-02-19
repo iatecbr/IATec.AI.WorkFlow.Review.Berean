@@ -42,6 +42,10 @@ export const reviewCommand = new Command('review')
     'URLs with {{query}} are queried dynamically by the LLM. ' +
     'E.g.: ./rules.md,https://host/doc?q={{query}} (or set BEREAN_RULES env)',
   )
+  .option(
+    '--skip-folders <folders>',
+    'Comma-separated list of folders to exclude from review (e.g. node_modules,dist,src/generated)',
+  )
   .option('--verbose', 'Show detailed debug output (sets BEREAN_VERBOSE=1)')
   .action(async (url, options) => {
     try {
@@ -180,7 +184,11 @@ export const reviewCommand = new Command('review')
           : 'Fetching PR diff...',
       ).start();
 
-      const diffResult = await fetchPRDiff(prInfo, { fromIterationId });
+      const skipFolders = options.skipFolders
+        ? (options.skipFolders as string).split(',').map((f: string) => f.trim()).filter(Boolean)
+        : [];
+
+      const diffResult = await fetchPRDiff(prInfo, { fromIterationId, skipFolders });
 
       if (!diffResult.success || !diffResult.diff) {
         diffSpinner.fail('Failed to fetch PR diff');

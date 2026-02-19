@@ -155,6 +155,8 @@ export async function fetchPRBasicInfo(prInfo: PRInfo): Promise<PRBasicInfoResul
 export interface FetchDiffOptions {
   /** When set, only returns changes since this iteration (incremental mode) */
   fromIterationId?: number;
+  /** Folder paths to exclude from the diff (e.g. ['node_modules', 'dist', 'src/generated']) */
+  skipFolders?: string[];
 }
 
 /**
@@ -298,7 +300,21 @@ export async function fetchPRDiff(prInfo: PRInfo, options: FetchDiffOptions = {}
       };
     }
 
-    // ── 5. Prioritize code files ───────────────────────────────────────────────
+    // ── 5. Apply skip-folders filter ──────────────────────────────────────────
+    const { skipFolders = [] } = options;
+    if (skipFolders.length > 0) {
+      const before = changeEntries.length;
+      changeEntries = changeEntries.filter(entry => {
+        const p = entry.item?.path ?? entry.path ?? '';
+        return !isPathInSkippedFolder(p, skipFolders);
+      });
+      const skipped = before - changeEntries.length;
+      if (skipped > 0) {
+        diffContent += `\n> ⏭️ ${skipped} file(s) skipped (--skip-folders: ${skipFolders.join(', ')})\n`;
+      }
+    }
+
+    // ── 6. Prioritize code files ───────────────────────────────────────────────
     const MAX_FILES = 40;
     const MAX_FILE_CHARS = 5000;
     const codeExtensions = ['.js', '.ts', '.py', '.cs', '.java', '.go', '.rs', '.cpp', '.c', '.jsx', '.tsx', '.vue', '.rb', '.php'];
@@ -426,6 +442,24 @@ async function fetchFileSection(
   }
 
   return section;
+}
+
+/**
+ * Returns true if the given file path is inside one of the skipped folders.
+ *
+ * Matching rules (case-insensitive, leading slash optional):
+ *   skipFolder "node_modules"  matches  "/node_modules/lodash/index.js"
+ *   skipFolder "src/generated" matches  "/src/generated/api-client.ts"
+ *   skipFolder "/dist"         matches  "/dist/bundle.js"
+ */
+function isPathInSkippedFolder(filePath: string, skipFolders: string[]): boolean {
+  // Normalise: strip leading slash so we compare apples-to-apples
+  const normalised = filePath.startsWith('/') ? filePath.slice(1) : filePath;
+  return skipFolders.some(folder => {
+    const f = folder.replace(/^\/+|\/+$/g, '').toLowerCase();
+    const n = normalised.toLowerCase();
+    return n === f || n.startsWith(f + '/');
+  });
 }
 
 function getChangeTypeName(changeType?: number): string {
