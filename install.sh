@@ -28,9 +28,13 @@ fi
 
 NEW_VERSION=$(get_version "$INSTALL_DIR")
 
-# Install dependencies
+# Install dependencies (including devDependencies needed for build)
 echo "  Installing dependencies..."
-npm install --production 2>&1 | tail -3
+npm install 2>&1 | tail -3
+
+# Build TypeScript sources
+echo "  Building..."
+npm run build 2>&1 | tail -3
 
 # Link globally
 echo "  Linking globally..."
@@ -40,7 +44,7 @@ echo ""
 if [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" != "$NEW_VERSION" ]; then
   echo "✅ Berean updated: v$CURRENT_VERSION → v$NEW_VERSION"
 elif [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" = "$NEW_VERSION" ]; then
-  echo "✅ Berean is already up to date (v$NEW_VERSION)"
+  echo "✅ Berean updated to v$NEW_VERSION"
 else
   echo "✅ Berean v$NEW_VERSION installed!"
 fi
