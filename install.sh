@@ -12,6 +12,13 @@ get_version() {
   fi
 }
 
+# Remove previous installation to ensure fresh install
+if [ -d "$INSTALL_DIR" ]; then
+  CURRENT_VERSION=$(get_version "$INSTALL_DIR")
+  echo "🧹 Cleaning previous installation (current: v$CURRENT_VERSION)..."
+  rm -rf "$INSTALL_DIR"
+fi
+
 # Clone or update
 if [ -d "$INSTALL_DIR" ]; then
   CURRENT_VERSION=$(get_version "$INSTALL_DIR")
@@ -48,6 +55,9 @@ npm run build 2>&1 | tail -3
 # Link globally
 echo "  Linking globally..."
 npm link 2>&1 | tail -2
+
+# Ensure binary has execution permission
+chmod +x "$(which berean)" 2>/dev/null || true
 
 echo ""
 if [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" != "$NEW_VERSION" ]; then
