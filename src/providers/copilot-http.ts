@@ -59,12 +59,13 @@ async function getCopilotToken(githubToken: string): Promise<string> {
 export async function chatCompletion(
   githubToken: string,
   model: string,
-  prompt: string,
+  systemPrompt: string,
+  userPrompt: string,
   timeoutMs: number = 300_000,
 ): Promise<string> {
   const copilotToken = await getCopilotToken(githubToken);
 
-  log(`[berean-http] Sending chat completion request (model: ${model}, prompt: ${prompt.length} chars)...`);
+  log(`[berean-http] Sending chat completion request (model: ${model}, system: ${systemPrompt.length} chars, user: ${userPrompt.length} chars)...`);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -82,7 +83,10 @@ export async function chatCompletion(
       },
       body: JSON.stringify({
         model,
-        messages: [{ role: 'user', content: prompt }],
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
         stream: false,
       }),
       signal: controller.signal,

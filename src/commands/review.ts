@@ -36,6 +36,7 @@ export const reviewCommand = new Command('review')
   .option('--skip-if-reviewed', 'Skip if PR was already reviewed by Berean')
   .option('--incremental', 'Only review new commits since last Berean review')
   .option('--force', 'Force review even if @berean: ignore is set')
+  .option('--confidence-threshold <number>', 'Minimum confidence to report issues (0-100, default: 75)')
   .option(
     '--rules <sources>',
     'Comma-separated rule sources: file paths, directories, or URLs. ' +
@@ -252,7 +253,13 @@ export const reviewCommand = new Command('review')
       // ── 5. Review code ────────────────────────────────────────────────────────
       const reviewSpinner = ora(`Reviewing with ${model}...`).start();
 
-      const reviewResult = await reviewCode(diffResult.diff, { model, language, rules });
+      const reviewResult = await reviewCode(diffResult.diff, {
+        model,
+        language,
+        rules,
+        files: diffResult.files,
+        confidenceThreshold: options.confidenceThreshold ? parseInt(options.confidenceThreshold, 10) : undefined,
+      });
 
       if (!reviewResult.success) {
         reviewSpinner.fail('Review failed');
@@ -394,6 +401,17 @@ function formatReviewAsMarkdown(reviewResult: ReviewResult): string {
     md += `### Summary\n${reviewResult.summary}\n\n`;
   }
 
+  if (reviewResult.recommendation) {
+    const recEmoji: Record<string, string> = {
+      'APPROVE': '✅',
+      'APPROVE_WITH_SUGGESTIONS': '✅💡',
+      'NEEDS_CHANGES': '⚠️',
+      'NEEDS_DISCUSSION': '💬'
+    };
+    const emoji = recEmoji[reviewResult.recommendation] || '📋';
+    md += `### ${emoji} Recommendation: ${reviewResult.recommendation.replace(/_/g, ' ')}\n\n`;
+  }
+
   if (reviewResult.issues && reviewResult.issues.length > 0) {
     md += '### Issues Found\n\n';
     md += formatIssuesGroupedByFile(reviewResult.issues);
@@ -466,8 +484,12 @@ function renderIssueMarkdown(issue: ReviewIssue): string {
   const icon = issue.severity === 'critical' ? '🔴' : issue.severity === 'warning' ? '🟡' : '🔵';
 
   let md = `${icon} **${issue.severity.toUpperCase()}**`;
+  if (issue.category) md += ` [${issue.category}]`;
+  if (issue.confidence) md += ` (${issue.confidence}%)`;
   if (issue.line) md += ` — linha ${issue.line}`;
-  md += `\n${issue.message}\n`;
+  md += '\n';
+  if (issue.title) md += `**${issue.title}**\n`;
+  md += `${issue.message}\n`;
 
   if (issue.suggestion) {
     md += `\n\`\`\`suggestion\n${issue.suggestion}\n\`\`\`\n`;
@@ -479,7 +501,14 @@ function renderIssueMarkdown(issue: ReviewIssue): string {
 
 function formatIssueAsMarkdown(issue: ReviewIssue): string {
   const icon = issue.severity === 'critical' ? '🔴' : issue.severity === 'warning' ? '🟡' : '🔵';
-  let md = `${icon} **${issue.severity.toUpperCase()}**: ${issue.message}`;
+
+  let md = `${icon} **${issue.severity.toUpperCase()}**`;
+  if (issue.category) md += ` [${issue.category}]`;
+  if (issue.confidence) md += ` (${issue.confidence}%)`;
+  md += '\n';
+  if (issue.title) md += `**${issue.title}**\n`;
+  md += issue.message;
+
   if (issue.suggestion) {
     md += `\n\n\`\`\`suggestion\n${issue.suggestion}\n\`\`\``;
   }
@@ -494,6 +523,24 @@ function printReviewToTerminal(reviewResult: ReviewResult) {
   if (reviewResult.summary) {
     console.log(chalk.white.bold('Summary:'));
     console.log(chalk.white(reviewResult.summary) + '\n');
+  }
+
+  if (reviewResult.recommendation) {
+    const recColors: Record<string, (text: string) => string> = {
+      'APPROVE': chalk.green,
+      'APPROVE_WITH_SUGGESTIONS': chalk.green,
+      'NEEDS_CHANGES': chalk.yellow,
+      'NEEDS_DISCUSSION': chalk.cyan
+    };
+    const recEmoji: Record<string, string> = {
+      'APPROVE': '✅',
+      'APPROVE_WITH_SUGGESTIONS': '✅💡',
+      'NEEDS_CHANGES': '⚠️',
+      'NEEDS_DISCUSSION': '💬'
+    };
+    const colorFn = recColors[reviewResult.recommendation] || chalk.white;
+    const emoji = recEmoji[reviewResult.recommendation] || '📋';
+    console.log(colorFn(`${emoji} Recommendation: ${reviewResult.recommendation.replace(/_/g, ' ')}\n`));
   }
 
   if (reviewResult.issues && reviewResult.issues.length > 0) {
@@ -519,8 +566,18 @@ function printReviewToTerminal(reviewResult: ReviewResult) {
           ? ['🟡', chalk.yellow]
           : ['🔵', chalk.blue];
 
-      console.log(`${icon} ${color.bold(issue.severity.toUpperCase())}`);
+      let header = `${icon} ${color.bold(issue.severity.toUpperCase())}`;
+      if (issue.category) {
+        header += chalk.gray(` [${issue.category}]`);
+      }
+      if (issue.confidence) {
+        header += chalk.gray(` (${issue.confidence}%)`);
+      }
+      console.log(header);
       if (issue.file) console.log(chalk.gray(`   ${issue.file}${issue.line ? `:${issue.line}` : ''}`));
+      if (issue.title) {
+        console.log(chalk.white.bold(`   ${issue.title}`));
+      }
       console.log(chalk.white(`   ${issue.message}`));
       if (issue.suggestion) console.log(chalk.green(`   Suggestion: ${issue.suggestion}`));
       console.log();
