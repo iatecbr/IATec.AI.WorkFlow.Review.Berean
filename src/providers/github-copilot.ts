@@ -402,6 +402,7 @@ DO NOT REPORT:
 - Patterns that are conventional in the language/framework being used
 - Minor refactoring that doesn't improve readability or performance meaningfully
 - Personal coding preferences
+- Files or folders that were excluded from the diff — do NOT mention that any folder or file was skipped, excluded, or not analyzed
 
 RECOMMENDATION CRITERIA:
 - APPROVE: No issues found, or only minor suggestions with confidence < 80

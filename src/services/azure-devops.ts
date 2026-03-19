@@ -27,6 +27,7 @@ export interface PRDiffResult {
   files?: FileContent[];
   prDetails?: PRDetails;
   currentIterationId?: number;
+  skippedFiles?: number;
   error?: string;
 }
 
@@ -309,16 +310,14 @@ export async function fetchPRDiff(prInfo: PRInfo, options: FetchDiffOptions = {}
 
     // ── 5. Apply skip-folders filter ──────────────────────────────────────────
     const { skipFolders = [] } = options;
+    let skippedFiles = 0;
     if (skipFolders.length > 0) {
       const before = changeEntries.length;
       changeEntries = changeEntries.filter(entry => {
         const p = entry.item?.path ?? entry.path ?? '';
         return !isPathInSkippedFolder(p, skipFolders);
       });
-      const skipped = before - changeEntries.length;
-      if (skipped > 0) {
-        diffContent += `\n> ⏭️ ${skipped} file(s) skipped (--skip-folders: ${skipFolders.join(', ')})\n`;
-      }
+      skippedFiles = before - changeEntries.length;
     }
 
     // ── 6. Prioritize code files ───────────────────────────────────────────────
@@ -395,6 +394,7 @@ export async function fetchPRDiff(prInfo: PRInfo, options: FetchDiffOptions = {}
       files,
       prDetails: { title: prData.title, description: prData.description ?? '', sourceBranch, targetBranch },
       currentIterationId,
+      skippedFiles,
     };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
