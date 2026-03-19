@@ -203,6 +203,10 @@ export const reviewCommand = new Command('review')
           : `Diff fetched (${diffResult.diff.length} chars)`,
       );
 
+      if (diffResult.skippedFiles && diffResult.skippedFiles > 0) {
+        console.log(chalk.gray(`  ⏭️  ${diffResult.skippedFiles} file(s) skipped (--skip-folders: ${skipFolders.join(', ')})`));
+      }
+
       // ── 4. Load project rules (after diff — URL sources need the diff for LLM queries) ──
       const language = options.language || getDefaultLanguage();
       const model = options.model || getDefaultModel();
