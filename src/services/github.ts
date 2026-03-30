@@ -41,6 +41,31 @@ function buildGitHubApiContext(): GitHubApiContext | null {
   };
 }
 
+/**
+ * Safely parse a JSON response, guarding against non-JSON bodies.
+ *
+ * If the API returns HTML (e.g. a sign-in page) instead of JSON, calling
+ * `res.json()` throws a confusing `SyntaxError: Unexpected token '<'`.
+ * This helper detects that and throws a descriptive error instead.
+ */
+async function safeGitHubJsonParse<T>(res: Response): Promise<T> {
+  const contentType = res.headers.get('content-type') ?? '';
+  if (!contentType.includes('application/json') && !contentType.includes('application/vnd.github')) {
+    const preview = (await res.text()).substring(0, 200);
+    if (preview.trimStart().startsWith('<')) {
+      throw new Error(
+        'GitHub returned an HTML page instead of JSON. ' +
+        'This usually means the token is invalid or expired. ' +
+        `HTTP ${res.status}`,
+      );
+    }
+    throw new Error(
+      `GitHub returned an unexpected content-type: ${contentType || '(empty)'}. HTTP ${res.status}`,
+    );
+  }
+  return res.json() as Promise<T>;
+}
+
 // ─── Parse ────────────────────────────────────────────────────────────────────
 
 /**
@@ -96,12 +121,12 @@ export async function fetchGitHubPRBasicInfo(prInfo: GitHubPRInfo): Promise<PRBa
       return { success: false, error: `GitHub API error: ${res.status}` };
     }
 
-    const data = await res.json() as {
+    const data = await safeGitHubJsonParse<{
       title: string;
       body?: string;
       head: { ref: string };
       base: { ref: string };
-    };
+    }>(res);
 
     return {
       success: true,
@@ -152,13 +177,13 @@ export async function fetchGitHubPRDiff(
       return { success: false, error: `GitHub API error: ${prRes.status}` };
     }
 
-    const prData = await prRes.json() as {
+    const prData = await safeGitHubJsonParse<{
       title: string;
       body?: string;
       head: { ref: string; sha: string };
       base: { ref: string };
       changed_files: number;
-    };
+    }>(prRes);
 
     const sourceBranch = prData.head.ref;
     const targetBranch = prData.base.ref;
@@ -188,7 +213,7 @@ export async function fetchGitHubPRDiff(
 
       if (!filesRes.ok) break;
 
-      const files = await filesRes.json() as GitHubFile[];
+      const files = await safeGitHubJsonParse<GitHubFile[]>(filesRes);
       if (files.length === 0) break;
 
       allFiles.push(...files);
@@ -321,7 +346,7 @@ export async function postGitHubPRComment(
       return { success: false, error: errorData.message ?? `HTTP ${res.status}` };
     }
 
-    const data = await res.json() as { id: number };
+    const data = await safeGitHubJsonParse<{ id: number }>(res);
     return { success: true, threadId: data.id };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
@@ -345,11 +370,11 @@ export async function findGitHubBereanComments(prInfo: GitHubPRInfo): Promise<Be
 
     if (!res.ok) return [];
 
-    const comments = await res.json() as Array<{
+    const comments = await safeGitHubJsonParse<Array<{
       id: number;
       body: string;
       created_at: string;
-    }>;
+    }>>(res);
 
     const bereanComments: BereanComment[] = [];
 
@@ -412,7 +437,7 @@ export async function getGitHubPRCommits(prInfo: GitHubPRInfo): Promise<string[]
 
     if (!res.ok) return [];
 
-    const commits = await res.json() as Array<{ sha: string }>;
+    const commits = await safeGitHubJsonParse<Array<{ sha: string }>>(res);
     return commits.map(c => c.sha);
   } catch {
     return [];
@@ -482,7 +507,7 @@ export async function postGitHubInlineComments(
 
   let headSha = '';
   if (prRes?.ok) {
-    const prData = await prRes.json() as { head: { sha: string } };
+    const prData = await safeGitHubJsonParse<{ head: { sha: string } }>(prRes);
     headSha = prData.head.sha;
   }
 
@@ -502,10 +527,10 @@ export async function postGitHubInlineComments(
   ).catch(() => null);
 
   if (reviewCommentsRes?.ok) {
-    const existingComments = await reviewCommentsRes.json() as Array<{
+    const existingComments = await safeGitHubJsonParse<Array<{
       path: string;
       line?: number;
-    }>;
+    }>>(reviewCommentsRes);
     for (const c of existingComments) {
       if (c.path && c.line) existingKeys.add(`${c.path}:${c.line}`);
     }

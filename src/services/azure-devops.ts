@@ -49,6 +49,33 @@ function buildApiContext(prInfo: PRInfo): ApiContext | null {
   };
 }
 
+/**
+ * Safely parse a JSON response, guarding against non-JSON bodies.
+ *
+ * Azure DevOps may return HTML (e.g. a sign-in page) with a 2xx status
+ * (commonly 203 Non-Authoritative) when the PAT is missing or invalid.
+ * Calling `res.json()` on such a response throws a confusing
+ * `SyntaxError: Unexpected token '<'`.  This helper detects that scenario
+ * early and throws a descriptive error instead.
+ */
+async function safeJsonParse<T>(res: Response): Promise<T> {
+  const contentType = res.headers.get('content-type') ?? '';
+  if (!contentType.includes('application/json')) {
+    const preview = (await res.text()).substring(0, 200);
+    if (res.status === 203 || preview.trimStart().startsWith('<')) {
+      throw new Error(
+        'Azure DevOps returned an HTML page instead of JSON. ' +
+        'This usually means the PAT is invalid, expired, or lacks the required scope. ' +
+        `HTTP ${res.status}`,
+      );
+    }
+    throw new Error(
+      `Azure DevOps returned an unexpected content-type: ${contentType || '(empty)'}. HTTP ${res.status}`,
+    );
+  }
+  return res.json() as Promise<T>;
+}
+
 // ─── Parse ────────────────────────────────────────────────────────────────────
 
 /**
@@ -130,12 +157,12 @@ export async function fetchPRBasicInfo(prInfo: PRInfo): Promise<PRBasicInfoResul
       return { success: false, error: `Azure DevOps API error: ${res.status}` };
     }
 
-    const data = await res.json() as {
+    const data = await safeJsonParse<{
       title: string;
       description?: string;
       sourceRefName: string;
       targetRefName: string;
-    };
+    }>(res);
 
     return {
       success: true,
@@ -189,13 +216,13 @@ export async function fetchPRDiff(prInfo: PRInfo, options: FetchDiffOptions = {}
       return { success: false, error: `Azure DevOps API error: ${prRes.status}` };
     }
 
-    const prData = await prRes.json() as {
+    const prData = await safeJsonParse<{
       title: string;
       description?: string;
       sourceRefName: string;
       targetRefName: string;
       repository?: { id: string };
-    };
+    }>(prRes);
 
     const sourceBranch = prData.sourceRefName?.replace('refs/heads/', '');
     const targetBranch = prData.targetRefName?.replace('refs/heads/', '');
@@ -214,7 +241,7 @@ export async function fetchPRDiff(prInfo: PRInfo, options: FetchDiffOptions = {}
     let fromCommitId: string | undefined;
 
     if (iterRes.ok) {
-      const iterData = await iterRes.json() as { value: IterationItem[] };
+      const iterData = await safeJsonParse<{ value: IterationItem[] }>(iterRes);
       const iterations = iterData.value ?? [];
 
       if (iterations.length > 0) {
@@ -233,7 +260,7 @@ export async function fetchPRDiff(prInfo: PRInfo, options: FetchDiffOptions = {}
             { headers: ctx.headers },
           );
           if (changesRes.ok) {
-            const changesData = await changesRes.json() as { changeEntries: typeof changeEntries };
+            const changesData = await safeJsonParse<{ changeEntries: typeof changeEntries }>(changesRes);
             changeEntries = changesData.changeEntries ?? [];
           }
         } else {
@@ -243,7 +270,7 @@ export async function fetchPRDiff(prInfo: PRInfo, options: FetchDiffOptions = {}
             { headers: ctx.headers },
           );
           if (changesRes.ok) {
-            const changesData = await changesRes.json() as { changeEntries: typeof changeEntries };
+            const changesData = await safeJsonParse<{ changeEntries: typeof changeEntries }>(changesRes);
             changeEntries = changesData.changeEntries ?? [];
           }
         }
@@ -258,7 +285,7 @@ export async function fetchPRDiff(prInfo: PRInfo, options: FetchDiffOptions = {}
       );
 
       if (commitsRes.ok) {
-        const commitsData = await commitsRes.json() as { value: Array<{ commitId: string }> };
+        const commitsData = await safeJsonParse<{ value: Array<{ commitId: string }> }>(commitsRes);
         const commits = commitsData.value ?? [];
 
         for (const commit of commits) {
@@ -267,7 +294,7 @@ export async function fetchPRDiff(prInfo: PRInfo, options: FetchDiffOptions = {}
             { headers: ctx.headers },
           );
           if (commitChangesRes.ok) {
-            const commitChangesData = await commitChangesRes.json() as { changes: typeof changeEntries };
+            const commitChangesData = await safeJsonParse<{ changes: typeof changeEntries }>(commitChangesRes);
             for (const change of commitChangesData.changes ?? []) {
               const p = change.item?.path ?? change.path;
               if (p && !changeEntries.find(e => (e.item?.path ?? e.path) === p)) {
@@ -398,7 +425,7 @@ async function fetchFileSection(
       return section;
     }
 
-    const srcData = await srcRes.json() as { content?: string };
+    const srcData = await safeJsonParse<{ content?: string }>(srcRes);
     if (!srcData.content) {
       section += '(Binary or empty file)\n';
       return section;
@@ -424,7 +451,7 @@ async function fetchFileSection(
     );
 
     if (oldRes.ok) {
-      const oldData = await oldRes.json() as { content?: string };
+      const oldData = await safeJsonParse<{ content?: string }>(oldRes);
       const diff = generateUnifiedDiff(oldData.content ?? '', srcData.content, maxChars);
       if (diff) {
         section += '```diff\n' + diff + '\n```\n';
@@ -650,12 +677,12 @@ export async function findBereanComments(prInfo: PRInfo): Promise<BereanComment[
 
     if (!res.ok) return [];
 
-    const data = await res.json() as {
+    const data = await safeJsonParse<{
       value: Array<{
         id: number;
         comments: Array<{ id: number; content: string; publishedDate: string }>;
       }>;
-    };
+    }>(res);
 
     const bereanComments: BereanComment[] = [];
 
@@ -733,7 +760,7 @@ export async function getPRCommits(prInfo: PRInfo): Promise<string[]> {
 
     if (!res.ok) return [];
 
-    const data = await res.json() as { value: Array<{ commitId: string }> };
+    const data = await safeJsonParse<{ value: Array<{ commitId: string }> }>(res);
     return (data.value ?? []).map(c => c.commitId);
   } catch {
     return [];
@@ -809,7 +836,7 @@ export async function postPRComment(prInfo: PRInfo, comment: string): Promise<Po
       return { success: false, error: errorData.message ?? `HTTP ${res.status}` };
     }
 
-    const data = await res.json() as { id: number };
+    const data = await safeJsonParse<{ id: number }>(res);
     return { success: true, threadId: data.id };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
@@ -852,7 +879,7 @@ export async function postInlineComments(
   ).catch(() => null);
 
   if (iterRes?.ok) {
-    const iterData = await iterRes.json() as { value: Array<{ id: number }> };
+    const iterData = await safeJsonParse<{ value: Array<{ id: number }> }>(iterRes);
     const iterations = iterData.value ?? [];
     if (iterations.length > 0) iterationId = iterations[iterations.length - 1].id;
   }
@@ -865,12 +892,12 @@ export async function postInlineComments(
   ).catch(() => null);
 
   if (threadsRes?.ok) {
-    const threadsData = await threadsRes.json() as {
+    const threadsData = await safeJsonParse<{
       value: Array<{
         isDeleted?: boolean;
         threadContext?: { filePath?: string; rightFileStart?: { line?: number } };
       }>;
-    };
+    }>(threadsRes);
     for (const thread of threadsData.value ?? []) {
       if (thread.isDeleted) continue;
       const fp = thread.threadContext?.filePath;
@@ -948,7 +975,7 @@ async function postInlineComment(
       return { success: false, error: errorData.message ?? `HTTP ${res.status}` };
     }
 
-    const data = await res.json() as { id: number };
+    const data = await safeJsonParse<{ id: number }>(res);
     return { success: true, threadId: data.id };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
