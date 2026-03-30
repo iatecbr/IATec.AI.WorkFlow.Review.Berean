@@ -50,6 +50,33 @@ function buildApiContext(prInfo: PRInfo): ApiContext | null {
 }
 
 /**
+ * Build a descriptive error message from a failed HTTP response.
+ *
+ * Includes status code, status text, content-type, and a body preview
+ * so the user has enough context to diagnose the problem.
+ */
+async function buildErrorMessage(res: Response, label?: string): Promise<string> {
+  const prefix = label ? `${label}: ` : '';
+  const contentType = res.headers.get('content-type') ?? '';
+
+  let bodyPreview: string;
+  try {
+    const raw = await res.text();
+    bodyPreview = raw.substring(0, 500);
+  } catch {
+    bodyPreview = '(could not read response body)';
+  }
+
+  const parts = [
+    `${prefix}HTTP ${res.status} (${res.statusText || 'No Status Text'})`,
+  ];
+  if (contentType) parts.push(`Content-Type: ${contentType}`);
+  if (bodyPreview) parts.push(`Response: ${bodyPreview}`);
+
+  return parts.join('\n  ');
+}
+
+/**
  * Safely parse a JSON response, guarding against non-JSON bodies.
  *
  * Azure DevOps may return HTML (e.g. a sign-in page) with a 2xx status
@@ -61,16 +88,17 @@ function buildApiContext(prInfo: PRInfo): ApiContext | null {
 async function safeJsonParse<T>(res: Response): Promise<T> {
   const contentType = res.headers.get('content-type') ?? '';
   if (!contentType.includes('application/json')) {
-    const preview = (await res.text()).substring(0, 200);
+    const preview = (await res.text()).substring(0, 500);
     if (res.status === 203 || preview.trimStart().startsWith('<')) {
       throw new Error(
         'Azure DevOps returned an HTML page instead of JSON. ' +
         'This usually means the PAT is invalid, expired, or lacks the required scope. ' +
-        `HTTP ${res.status}`,
+        `HTTP ${res.status}\n  Content-Type: ${contentType || '(empty)'}\n  Response: ${preview}`,
       );
     }
     throw new Error(
-      `Azure DevOps returned an unexpected content-type: ${contentType || '(empty)'}. HTTP ${res.status}`,
+      `Azure DevOps returned an unexpected content-type: ${contentType || '(empty)'}. ` +
+      `HTTP ${res.status}\n  Response: ${preview}`,
     );
   }
   return res.json() as Promise<T>;
@@ -151,10 +179,11 @@ export async function fetchPRBasicInfo(prInfo: PRInfo): Promise<PRBasicInfoResul
     );
 
     if (!res.ok) {
-      if (res.status === 401) return { success: false, error: 'Azure DevOps token is invalid or expired' };
-      if (res.status === 403) return { success: false, error: 'Access denied. Check your token permissions.' };
-      if (res.status === 404) return { success: false, error: 'Pull request not found. Check the URL.' };
-      return { success: false, error: `Azure DevOps API error: ${res.status}` };
+      const detail = await buildErrorMessage(res, 'Azure DevOps API error');
+      if (res.status === 401) return { success: false, error: `Azure DevOps token is invalid or expired\n  ${detail}` };
+      if (res.status === 403) return { success: false, error: `Access denied. Check your token permissions.\n  ${detail}` };
+      if (res.status === 404) return { success: false, error: `Pull request not found. Check the URL.\n  ${detail}` };
+      return { success: false, error: detail };
     }
 
     const data = await safeJsonParse<{
@@ -210,10 +239,11 @@ export async function fetchPRDiff(prInfo: PRInfo, options: FetchDiffOptions = {}
     );
 
     if (!prRes.ok) {
-      if (prRes.status === 401) return { success: false, error: 'Azure DevOps token is invalid or expired' };
-      if (prRes.status === 403) return { success: false, error: 'Access denied. Check your token permissions.' };
-      if (prRes.status === 404) return { success: false, error: 'Pull request not found. Check the URL.' };
-      return { success: false, error: `Azure DevOps API error: ${prRes.status}` };
+      const detail = await buildErrorMessage(prRes, 'Azure DevOps API error');
+      if (prRes.status === 401) return { success: false, error: `Azure DevOps token is invalid or expired\n  ${detail}` };
+      if (prRes.status === 403) return { success: false, error: `Access denied. Check your token permissions.\n  ${detail}` };
+      if (prRes.status === 404) return { success: false, error: `Pull request not found. Check the URL.\n  ${detail}` };
+      return { success: false, error: detail };
     }
 
     const prData = await safeJsonParse<{
@@ -803,8 +833,8 @@ export async function updatePRComment(
     );
 
     if (!res.ok) {
-      const errorData = await res.json().catch(() => ({})) as { message?: string };
-      return { success: false, error: errorData.message ?? `HTTP ${res.status}` };
+      const detail = await buildErrorMessage(res, 'Failed to update comment');
+      return { success: false, error: detail };
     }
 
     return { success: true, threadId };
@@ -832,8 +862,8 @@ export async function postPRComment(prInfo: PRInfo, comment: string): Promise<Po
     );
 
     if (!res.ok) {
-      const errorData = await res.json().catch(() => ({})) as { message?: string };
-      return { success: false, error: errorData.message ?? `HTTP ${res.status}` };
+      const detail = await buildErrorMessage(res, 'Failed to post comment');
+      return { success: false, error: detail };
     }
 
     const data = await safeJsonParse<{ id: number }>(res);
@@ -971,8 +1001,8 @@ async function postInlineComment(
     );
 
     if (!res.ok) {
-      const errorData = await res.json().catch(() => ({})) as { message?: string };
-      return { success: false, error: errorData.message ?? `HTTP ${res.status}` };
+      const detail = await buildErrorMessage(res, 'Failed to post inline comment');
+      return { success: false, error: detail };
     }
 
     const data = await safeJsonParse<{ id: number }>(res);
