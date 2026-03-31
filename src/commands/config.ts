@@ -1,15 +1,17 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { saveConfig, getConfig, getConfigDir, getAzureDevOpsPATFromPipeline, getGitHubTokenFromAzure, getDefaultModel, getDefaultLanguage, getDefaultModelSource, getDefaultLanguageSource } from '../services/credentials.js';
+import { saveConfig, getConfig, getConfigDir, getAzureDevOpsPATFromPipeline, getGitHubTokenFromAzure, getDefaultModel, getDefaultLanguage, getDefaultModelSource, getDefaultLanguageSource, getMaxRulesChars } from '../services/credentials.js';
 
 export const configCommand = new Command('config')
   .description('Manage configuration');
+
+const VALID_CONFIG_KEYS = ['azure-pat', 'default-model', 'language', 'max-rules-chars'];
 
 configCommand
   .command('set <key> <value>')
   .description('Set a configuration value')
   .action((key: string, value: string) => {
-    const validKeys = ['azure-pat', 'default-model', 'language'];
+    const validKeys = VALID_CONFIG_KEYS;
     
     if (!validKeys.includes(key)) {
       console.log(chalk.red(`✗ Unknown config key: ${key}`));
@@ -30,6 +32,16 @@ configCommand
         saveConfig({ language: value });
         console.log(chalk.green(`✓ Language set to: ${value}`));
         break;
+      case 'max-rules-chars': {
+        const parsed = parseInt(value, 10);
+        if (isNaN(parsed) || parsed <= 0) {
+          console.log(chalk.red('✗ max-rules-chars must be a positive number'));
+          process.exit(1);
+        }
+        saveConfig({ max_rules_chars: value });
+        console.log(chalk.green(`✓ Max rules chars set to: ${value}`));
+        break;
+      }
     }
   });
 
@@ -59,6 +71,9 @@ configCommand
           console.log(chalk.white(`language: ${getDefaultLanguage()}`));
           console.log(chalk.gray(`  (from ${getDefaultLanguageSource()})`));
           break;
+        case 'max-rules-chars':
+          console.log(chalk.white(`max-rules-chars: ${getMaxRulesChars()}`));
+          break;
         default:
           console.log(chalk.red(`✗ Unknown config key: ${key}`));
       }
@@ -85,6 +100,7 @@ configCommand
       console.log(chalk.gray(`                  (from ${getDefaultModelSource()})`));
       console.log(chalk.white('  language:'), chalk.cyan(getDefaultLanguage()));
       console.log(chalk.gray(`             (from ${getDefaultLanguageSource()})`));
+      console.log(chalk.white('  max-rules-chars:'), chalk.cyan(String(getMaxRulesChars())));
     }
   });
 

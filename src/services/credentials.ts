@@ -9,6 +9,7 @@ export interface Config {
   default_model?: string;
   language?: string;
   azure_devops_pat?: string;
+  max_rules_chars?: string;
   [key: string]: string | undefined;
 }
 
@@ -89,6 +90,30 @@ export function getRulesPath(): string | null {
     || process.env.BEREANRULES
     || getConfig().rules_path
     || null;
+}
+
+/**
+ * Get maximum total rules characters from env or config
+ * Priority: BEREAN_MAX_RULES_CHARS → BEREANMAXRULESCHARS → config file → 50000
+ */
+export function getMaxRulesChars(): number {
+  const DEFAULT_MAX = 50_000;
+
+  const envValue = process.env.BEREAN_MAX_RULES_CHARS
+    || process.env.BEREANMAXRULESCHARS;
+
+  if (envValue) {
+    const parsed = parseInt(envValue, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+
+  const configValue = getConfig().max_rules_chars;
+  if (configValue) {
+    const parsed = parseInt(configValue, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+
+  return DEFAULT_MAX;
 }
 
 /**
