@@ -353,6 +353,10 @@ function isPathInSkippedFolder(filePath: string, skipFolders: string[]): boolean
 
 /**
  * Post a general comment (issue comment) on a GitHub PR.
+ *
+ * If the Issues Comments API returns 403, falls back to the Pull Request
+ * Reviews API which may succeed when the token has "Pull requests: Write"
+ * but not "Issues: Write" permission.
  */
 export async function postGitHubPRComment(
   prInfo: GitHubPRInfo,
@@ -372,7 +376,33 @@ export async function postGitHubPRComment(
     );
 
     if (!res.ok) {
-      const detail = await buildGitHubErrorMessage(res, 'Failed to post comment');
+      const detail = await buildGitHubErrorMessage(res);
+
+      if (res.status === 401) {
+        return { success: false, error: `GitHub token is invalid or expired.\n  ${detail}` };
+      }
+
+      if (res.status === 403) {
+        // Fallback: try the Pull Request Reviews API which uses different permissions
+        const fallback = await postViaReviewApi(prInfo, comment, ctx);
+        if (fallback.success) return fallback;
+
+        return {
+          success: false,
+          error:
+            `Access denied. Your token lacks permission to post PR comments.\n` +
+            `  Ensure your token has the required permissions:\n` +
+            `    • Fine-grained PAT: "Issues: Write" or "Pull requests: Write"\n` +
+            `    • Classic PAT: "repo" scope\n` +
+            `    • GitHub Actions: permissions: { issues: write } or { pull-requests: write }\n` +
+            `  ${detail}`,
+        };
+      }
+
+      if (res.status === 404) {
+        return { success: false, error: `Pull request not found. Check the URL.\n  ${detail}` };
+      }
+
       return { success: false, error: detail };
     }
 
@@ -380,6 +410,40 @@ export async function postGitHubPRComment(
     return { success: true, threadId: data.id };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+/**
+ * Fallback: post a comment via the Pull Request Reviews API.
+ *
+ * This endpoint requires "Pull requests: Write" permission, which may be
+ * available even when "Issues: Write" is not (common with fine-grained PATs
+ * and GitHub Actions tokens).
+ */
+async function postViaReviewApi(
+  prInfo: GitHubPRInfo,
+  comment: string,
+  ctx: GitHubApiContext,
+): Promise<PostCommentResult> {
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${encodeURIComponent(prInfo.owner)}/${encodeURIComponent(prInfo.repo)}/pulls/${prInfo.pullNumber}/reviews`,
+      {
+        method: 'POST',
+        headers: ctx.headers,
+        body: JSON.stringify({ body: comment, event: 'COMMENT' }),
+      },
+    );
+
+    if (!res.ok) {
+      const detail = await buildGitHubErrorMessage(res);
+      return { success: false, error: `Review API fallback failed: ${detail}` };
+    }
+
+    const data = await safeGitHubJsonParse<{ id: number }>(res);
+    return { success: true, threadId: data.id };
+  } catch (error) {
+    return { success: false, error: `Review API fallback failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
   }
 }
 
@@ -498,7 +562,27 @@ export async function updateGitHubPRComment(
     );
 
     if (!res.ok) {
-      const detail = await buildGitHubErrorMessage(res, 'Failed to update comment');
+      const detail = await buildGitHubErrorMessage(res);
+
+      if (res.status === 401) {
+        return { success: false, error: `GitHub token is invalid or expired.\n  ${detail}` };
+      }
+      if (res.status === 403) {
+        return {
+          success: false,
+          error:
+            `Access denied. Your token lacks permission to update PR comments.\n` +
+            `  Ensure your token has the required permissions:\n` +
+            `    • Fine-grained PAT: "Issues: Write" or "Pull requests: Write"\n` +
+            `    • Classic PAT: "repo" scope\n` +
+            `    • GitHub Actions: permissions: { issues: write } or { pull-requests: write }\n` +
+            `  ${detail}`,
+        };
+      }
+      if (res.status === 404) {
+        return { success: false, error: `Comment not found. It may have been deleted.\n  ${detail}` };
+      }
+
       return { success: false, error: detail };
     }
 

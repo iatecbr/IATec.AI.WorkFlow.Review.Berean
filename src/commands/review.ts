@@ -324,14 +324,16 @@ async function postGeneralComment(
     if (result.success) {
       spinner.succeed('Updated existing review comment with new findings!');
     } else {
-      spinner.fail(`Failed to update comment: ${result.error}`);
+      spinner.fail('Failed to update comment');
+      console.log(chalk.red(`  ${result.error}`));
     }
   } else {
     result = await provider.postPRComment(newComment);
     if (result.success) {
       spinner.succeed('Review posted to PR!');
     } else {
-      spinner.fail(`Failed to post comment: ${result.error}`);
+      spinner.fail('Failed to post comment');
+      console.log(chalk.red(`  ${result.error}`));
     }
   }
 
