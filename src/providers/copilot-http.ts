@@ -55,6 +55,12 @@ async function getCopilotToken(githubToken: string): Promise<string> {
 
 /**
  * Call Copilot Chat Completions API directly via HTTP
+ *
+ * @param githubToken GitHub PAT used to exchange for a Copilot token.
+ * @param model Copilot model identifier.
+ * @param systemPrompt System prompt content.
+ * @param userPrompt User prompt content.
+ * @param timeoutMs Timeout in milliseconds.
  */
 export async function chatCompletion(
   githubToken: string,

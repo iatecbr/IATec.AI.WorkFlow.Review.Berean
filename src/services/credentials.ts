@@ -94,10 +94,13 @@ export function getRulesPath(): string | null {
 
 /**
  * Get maximum total rules characters from env or config
- * Priority: BEREAN_MAX_RULES_CHARS → BEREANMAXRULESCHARS → config file → 50000
+ * Priority: BEREAN_MAX_RULES_CHARS → BEREANMAXRULESCHARS → config file → defaultMax → 50000
+ *
+ * @param defaultMax Optional default when no env/config is set.
  */
-export function getMaxRulesChars(): number {
+export function getMaxRulesChars(defaultMax?: number): number {
   const DEFAULT_MAX = 50_000;
+  const fallbackMax = defaultMax && defaultMax > 0 ? Math.floor(defaultMax) : DEFAULT_MAX;
 
   const envValue = process.env.BEREAN_MAX_RULES_CHARS
     || process.env.BEREANMAXRULESCHARS;
@@ -113,7 +116,7 @@ export function getMaxRulesChars(): number {
     if (!isNaN(parsed) && parsed > 0) return parsed;
   }
 
-  return DEFAULT_MAX;
+  return fallbackMax;
 }
 
 /**

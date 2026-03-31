@@ -108,6 +108,8 @@ async function safeJsonParse<T>(res: Response): Promise<T> {
 
 /**
  * Parse Azure DevOps PR URL into components
+ *
+ * @param url Azure DevOps PR URL to parse.
  */
 export function parsePRUrl(url: string): PRInfo | null {
   // Format: https://dev.azure.com/{org}/{project}/_git/{repo}/pullrequest/{id}
@@ -162,6 +164,8 @@ export interface PRBasicInfoResult {
 /**
  * Fetch only the PR metadata (title, description, branches) without building a diff.
  * Use this for quick checks (e.g., @berean: ignore) before fetching the full diff.
+ *
+ * @param prInfo Azure DevOps PR identifiers.
  */
 export async function fetchPRBasicInfo(prInfo: PRInfo): Promise<PRBasicInfoResult> {
   const ctx = buildApiContext(prInfo);
@@ -221,6 +225,9 @@ export interface FetchDiffOptions {
  *
  * When `options.fromIterationId` is provided, the diff covers only what changed
  * between that iteration and the latest one (true incremental review).
+ *
+ * @param prInfo Azure DevOps PR identifiers.
+ * @param options Diff options (incremental iteration, skip folders).
  */
 export async function fetchPRDiff(prInfo: PRInfo, options: FetchDiffOptions = {}): Promise<PRDiffResult> {
   const ctx = buildApiContext(prInfo);
@@ -694,6 +701,8 @@ const BEREAN_ITERATION_END = ':berean-iteration -->';
 
 /**
  * Find existing Berean review comments on a PR
+ *
+ * @param prInfo Azure DevOps PR identifiers.
  */
 export async function findBereanComments(prInfo: PRInfo): Promise<BereanComment[]> {
   const ctx = buildApiContext(prInfo);
@@ -762,6 +771,9 @@ function extractReviewedIteration(content: string): number | undefined {
 
 /**
  * Embed the list of reviewed commit IDs into a comment (as a hidden HTML tag)
+ *
+ * @param comment Existing comment body.
+ * @param commitIds Commit SHAs that were reviewed.
  */
 export function addReviewedCommitsTag(comment: string, commitIds: string[]): string {
   const tag = `${BEREAN_COMMITS_START}${commitIds.join(',')}${BEREAN_COMMITS_END}`;
@@ -770,6 +782,9 @@ export function addReviewedCommitsTag(comment: string, commitIds: string[]): str
 
 /**
  * Embed the reviewed iteration ID into a comment (as a hidden HTML tag)
+ *
+ * @param comment Existing comment body.
+ * @param iterationId Iteration ID that was reviewed.
  */
 export function addReviewedIterationTag(comment: string, iterationId: number): string {
   return `${comment}\n${BEREAN_ITERATION_START}${iterationId}${BEREAN_ITERATION_END}`;
@@ -777,6 +792,8 @@ export function addReviewedIterationTag(comment: string, iterationId: number): s
 
 /**
  * Get all commit IDs for a PR
+ *
+ * @param prInfo Azure DevOps PR identifiers.
  */
 export async function getPRCommits(prInfo: PRInfo): Promise<string[]> {
   const ctx = buildApiContext(prInfo);
@@ -800,6 +817,8 @@ export async function getPRCommits(prInfo: PRInfo): Promise<string[]> {
 /**
  * Check if PR description contains an ignore keyword.
  * Normalises whitespace so "@ berean : ignore" also matches.
+ *
+ * @param description PR description text.
  */
 export function shouldIgnorePR(description: string | undefined): boolean {
   if (!description) return false;
@@ -816,6 +835,11 @@ export function shouldIgnorePR(description: string | undefined): boolean {
 
 /**
  * Update an existing Berean comment (for incremental reviews)
+ *
+ * @param prInfo Azure DevOps PR identifiers.
+ * @param threadId Thread ID of the existing comment.
+ * @param commentId Comment ID to update.
+ * @param newContent New comment body.
  */
 export async function updatePRComment(
   prInfo: PRInfo,
@@ -845,6 +869,9 @@ export async function updatePRComment(
 
 /**
  * Post a general comment to a PR
+ *
+ * @param prInfo Azure DevOps PR identifiers.
+ * @param comment Comment body to post.
  */
 export async function postPRComment(prInfo: PRInfo, comment: string): Promise<PostCommentResult> {
   const ctx = buildApiContext(prInfo);
@@ -887,6 +914,9 @@ export interface InlineComment {
  * Improvements over the previous version:
  * - Fetches the latest iterationId once (instead of per-comment)
  * - Skips file:line locations that already have an open inline thread
+ *
+ * @param prInfo Azure DevOps PR identifiers.
+ * @param comments Inline comments to post.
  */
 export async function postInlineComments(
   prInfo: PRInfo,

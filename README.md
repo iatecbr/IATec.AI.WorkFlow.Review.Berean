@@ -50,9 +50,10 @@ export GITHUB_TOKEN="ghp_xxxxx"
 # Azure DevOps PAT (only needed for Azure DevOps PRs)
 export AZURE_DEVOPS_PAT="xxxxx"
 
-# (Optional) Model and language
+# (Optional) Model, language, and rules size
 export BEREAN_MODEL="claude-sonnet-4"
 export BEREAN_LANGUAGE="English"
+export BEREAN_MAX_RULES_CHARS="50000"
 
 # Review a GitHub PR
 berean review https://github.com/owner/repo/pull/123
@@ -94,10 +95,14 @@ All settings can be configured via environment variables, ideal for CI/CD:
 | `BEREANMODEL` | Alternative (Azure DevOps Variable Groups format) | No |
 | `BEREAN_LANGUAGE` | Response language (e.g., `English`, `Português do Brasil`) | No |
 | `BEREANLANGUAGE` | Alternative (Azure DevOps Variable Groups format) | No |
+| `BEREAN_MAX_RULES_CHARS` | Max total chars for rules input | No |
+| `BEREANMAXRULESCHARS` | Alternative (Azure DevOps Variable Groups format) | No |
 
 \* At least one GitHub token is required (or login via Copilot CLI).
 
 **Configuration priority:** Environment variable → Config file (`~/.berean/config.json`) → Default value
+
+> **Default max rules size:** If not set, Berean uses ~65% of the selected model's max context (approx. 4 chars per token) to leave room for diff and instructions. If model limits are unavailable, it falls back to 50,000 chars.
 
 > **💡 Azure DevOps Variable Groups:** Variables defined in Azure Pipelines Variable Groups have dots and hyphens stripped (e.g., `Berean.Model` becomes `BEREAN_MODEL`, `BereanModel` becomes `BEREANMODEL`). Berean accepts both formats automatically.
 
@@ -330,8 +335,15 @@ berean models current   # Show current model
 berean config set azure-pat <token>      # Save Azure DevOps PAT
 berean config set default-model <model>  # Set default model
 berean config set language <lang>        # Set default language
+berean config set max-rules-chars <num>  # Set max rules characters
 berean config get                        # Show all config
 berean config path                       # Show config directory
+
+Example:
+
+```bash
+berean config set max-rules-chars 50000
+```
 ```
 
 ---

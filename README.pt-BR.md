@@ -48,9 +48,10 @@ export GITHUB_TOKEN="ghp_xxxxx"
 # PAT do Azure DevOps (apenas para PRs do Azure DevOps)
 export AZURE_DEVOPS_PAT="xxxxx"
 
-# (Opcional) Modelo e idioma
+# (Opcional) Modelo, idioma e tamanho das regras
 export BEREAN_MODEL="claude-sonnet-4"
 export BEREAN_LANGUAGE="Português do Brasil"
+export BEREAN_MAX_RULES_CHARS="50000"
 
 # Revisar um PR do GitHub
 berean review https://github.com/owner/repo/pull/123
@@ -92,10 +93,14 @@ Todas as configurações podem ser definidas via variáveis de ambiente, ideal p
 | `BEREANMODEL` | Alternativa (formato Azure DevOps Variable Groups) | Não |
 | `BEREAN_LANGUAGE` | Idioma das respostas (ex: `Português do Brasil`) | Não |
 | `BEREANLANGUAGE` | Alternativa (formato Azure DevOps Variable Groups) | Não |
+| `BEREAN_MAX_RULES_CHARS` | Máximo de caracteres para regras | Não |
+| `BEREANMAXRULESCHARS` | Alternativa (formato Azure DevOps Variable Groups) | Não |
 
 \* Pelo menos um token GitHub é necessário (ou login via Copilot CLI).
 
 **Prioridade de configuração:** Variável de ambiente → Arquivo de config (`~/.berean/config.json`) → Valor padrão
+
+> **Tamanho máximo de regras:** Se não for definido, o Berean usa ~65% do limite do modelo selecionado (aprox. 4 chars por token) para sobrar espaço para diff e instrucoes. Se o limite do modelo não estiver disponível, usa 50.000 chars.
 
 > **💡 Azure DevOps Variable Groups:** Variáveis definidas em Variable Groups do Azure Pipelines têm pontos e hifens removidos (ex: `Berean.Model` vira `BEREAN_MODEL`, `BereanModel` vira `BEREANMODEL`). O Berean aceita ambos os formatos automaticamente.
 
@@ -239,6 +244,13 @@ berean config path                # Mostra caminho do diretório de config
 | `azure-pat` | PAT do Azure DevOps | `AZURE_DEVOPS_PAT` |
 | `default-model` | Modelo de IA padrão | `BEREAN_MODEL` |
 | `language` | Idioma das respostas | `BEREAN_LANGUAGE` |
+| `max-rules-chars` | Máximo de caracteres para regras | `BEREAN_MAX_RULES_CHARS` |
+
+**Exemplo:**
+
+```bash
+berean config set max-rules-chars 50000
+```
 
 ---
 
