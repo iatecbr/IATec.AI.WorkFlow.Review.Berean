@@ -94,10 +94,6 @@ interface LoadResult {
 
 function loadFileSource(source: RuleSource): LoadResult {
   try {
-    if (!fs.existsSync(source.resolvedValue)) {
-      return { content: null, error: `Path does not exist: ${source.resolvedValue}` };
-    }
-
     if (source.type === 'directory') {
       const files = fs.readdirSync(source.resolvedValue)
         .filter(f => !f.startsWith('.'))
@@ -119,6 +115,13 @@ function loadFileSource(source: RuleSource): LoadResult {
     const content = fs.readFileSync(source.resolvedValue, 'utf-8');
     return { content };
   } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      return { content: null, error: `Path does not exist: ${source.resolvedValue}` };
+    }
+    if (code === 'EACCES' || code === 'EPERM') {
+      return { content: null, error: `Permission denied: ${source.resolvedValue}` };
+    }
     const msg = e instanceof Error ? e.message : 'Unknown error';
     return { content: null, error: msg };
   }

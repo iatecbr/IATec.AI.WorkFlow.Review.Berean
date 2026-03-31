@@ -5,11 +5,13 @@ import { saveConfig, getConfig, getConfigDir, getAzureDevOpsPATFromPipeline, get
 export const configCommand = new Command('config')
   .description('Manage configuration');
 
+const VALID_CONFIG_KEYS = ['azure-pat', 'default-model', 'language', 'max-rules-chars'];
+
 configCommand
   .command('set <key> <value>')
   .description('Set a configuration value')
   .action((key: string, value: string) => {
-    const validKeys = ['azure-pat', 'default-model', 'language', 'max-rules-chars'];
+    const validKeys = VALID_CONFIG_KEYS;
     
     if (!validKeys.includes(key)) {
       console.log(chalk.red(`✗ Unknown config key: ${key}`));
