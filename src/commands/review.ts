@@ -13,6 +13,7 @@ import { reviewCode, fetchModels, stopClient, generateRuleQueries, ReviewResult,
 import { isAuthenticated } from '../services/copilot-auth.js';
 import { getDefaultModel, getDefaultLanguage, getRulesPath } from '../services/credentials.js';
 import { parseRuleSources, resolveRules } from '../services/rules.js';
+import { getModelMaxRulesChars } from '../services/model-limits.js';
 
 export const reviewCommand = new Command('review')
   .description('Review a Pull Request')
@@ -151,12 +152,10 @@ export const reviewCommand = new Command('review')
           }
         } else {
           checkSpinner.succeed('No previous Berean review found');
-          newCommits = allCommits;
         }
       } else {
         // Just get commits for tagging
         allCommits = await provider.getPRCommits();
-        newCommits = allCommits;
       }
 
       // ── 3. Fetch diff (incremental scope when applicable) ────────────────────
@@ -195,20 +194,22 @@ export const reviewCommand = new Command('review')
       let rules: string | undefined;
       const rulesInput = options.rules || getRulesPath();
 
-      if (rulesInput) {
-        const rulesSpinner = ora('Loading project rules...').start();
-        try {
-          const sources = parseRuleSources(rulesInput);
-          const hasUrlSources = sources.some(s => s.type === 'url');
+        if (rulesInput) {
+          const rulesSpinner = ora('Loading project rules...').start();
+          try {
+            const sources = parseRuleSources(rulesInput);
+            const hasUrlSources = sources.some(s => s.type === 'url');
 
           if (hasUrlSources) {
             rulesSpinner.text = 'Loading project rules (fetching from URLs)...';
           }
 
+          const maxRulesCharsDefault = await getModelMaxRulesChars(model);
           const result = await resolveRules(
             sources,
             diffResult.diff,
             (d) => generateRuleQueries(d, model),
+            maxRulesCharsDefault,
           );
 
           if (result.rules) {

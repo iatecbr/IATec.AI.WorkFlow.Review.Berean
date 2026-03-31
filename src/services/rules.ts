@@ -168,11 +168,13 @@ function hostname(url: string): string {
  * @param diff            The PR diff — used to generate queries for dynamic URL sources
  * @param generateQueries Callback that asks the LLM for relevant search queries.
  *                        Injected from review.ts to avoid coupling with github-copilot.ts.
+ * @param maxRulesCharsDefault
  */
 export async function resolveRules(
   sources: RuleSource[],
   diff: string,
   generateQueries: (diff: string) => Promise<string[]>,
+  maxRulesCharsDefault?: number,
 ): Promise<ResolveRulesResult> {
   const parts: string[] = [];
   const report: SourceReport[] = [];
@@ -285,7 +287,7 @@ export async function resolveRules(
   }
 
   // ── Combine & cap total size ─────────────────────────────────────────────────
-  const maxTotalRulesChars = getMaxRulesChars();
+  const maxTotalRulesChars = getMaxRulesChars(maxRulesCharsDefault);
   let combined = parts.join('\n\n---\n\n');
   if (combined.length > maxTotalRulesChars) {
     combined = combined.substring(0, maxTotalRulesChars) + '\n... (rules truncated)';
