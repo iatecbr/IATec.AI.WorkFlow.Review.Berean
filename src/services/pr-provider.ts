@@ -64,6 +64,8 @@ export interface CreateProviderResult {
  *   GitHub:      https://github.com/{owner}/{repo}/pull/{number}
  *   Azure DevOps: https://dev.azure.com/{org}/{project}/_git/{repo}/pullrequest/{id}
  *                 https://{org}.visualstudio.com/{project}/_git/{repo}/pullrequest/{id}
+ *
+ * @param url PR URL to detect platform and extract identifiers.
  */
 export function createProviderFromUrl(url: string): CreateProviderResult {
   // Try GitHub
@@ -104,6 +106,8 @@ export function createProviderFromUrl(url: string): CreateProviderResult {
  *
  * GitHub:      --owner + --repo + --pr
  * Azure DevOps: --org + --project + --repo + --pr
+ *
+ * @param flags CLI flags containing PR identifiers.
  */
 export function createProviderFromFlags(flags: {
   org?: string;

@@ -58,6 +58,8 @@ const URL_TIMEOUT_MS = 12_000;
  *   - url   → starts with http:// or https://
  *   - directory → resolved path is an existing directory
  *   - file  → anything else (will fail gracefully if path not found)
+ *
+ * @param input Comma-separated rule sources string (from --rules or BEREAN_RULES).
  */
 export function parseRuleSources(input: string): RuleSource[] {
   return input
@@ -132,6 +134,9 @@ function loadFileSource(source: RuleSource): LoadResult {
 /**
  * Fetch content from a URL.
  * If the URL contains {{query}}, replaces it with the provided query string (URL-encoded).
+ *
+ * @param urlTemplate URL to fetch; may include {{query}} placeholder.
+ * @param query Optional query string to substitute into {{query}}.
  */
 export async function fetchFromUrl(urlTemplate: string, query?: string): Promise<string> {
   const url = query
@@ -168,7 +173,7 @@ function hostname(url: string): string {
  * @param diff            The PR diff — used to generate queries for dynamic URL sources
  * @param generateQueries Callback that asks the LLM for relevant search queries.
  *                        Injected from review.ts to avoid coupling with github-copilot.ts.
- * @param maxRulesCharsDefault
+ * @param maxRulesCharsDefault Optional default max rules length when no config/env is set.
  */
 export async function resolveRules(
   sources: RuleSource[],

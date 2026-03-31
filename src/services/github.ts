@@ -103,6 +103,8 @@ async function safeGitHubJsonParse<T>(res: Response): Promise<T> {
  *   https://github.com/{owner}/{repo}/pull/{number}
  *   https://github.com/{owner}/{repo}/pull/{number}/files
  *   https://github.com/{owner}/{repo}/pull/{number}/commits
+ *
+ * @param url GitHub PR URL to parse.
  */
 export function parseGitHubPRUrl(url: string): GitHubPRInfo | null {
   try {
@@ -126,6 +128,8 @@ export function parseGitHubPRUrl(url: string): GitHubPRInfo | null {
 
 /**
  * Fetch only the PR metadata (title, description, branches) from GitHub.
+ *
+ * @param prInfo GitHub PR identifiers.
  */
 export async function fetchGitHubPRBasicInfo(prInfo: GitHubPRInfo): Promise<PRBasicInfoResult> {
   const ctx = buildGitHubApiContext();
@@ -179,6 +183,9 @@ export async function fetchGitHubPRBasicInfo(prInfo: GitHubPRInfo): Promise<PRBa
  * Uses the "list pull request files" endpoint which returns per-file patches.
  * The `fromIterationId` option from {@link FetchDiffOptions} is Azure-specific
  * and is ignored for GitHub; the full diff is always returned.
+ *
+ * @param prInfo GitHub PR identifiers.
+ * @param options Diff options (e.g., skipFolders).
  */
 export async function fetchGitHubPRDiff(
   prInfo: GitHubPRInfo,
@@ -357,6 +364,9 @@ function isPathInSkippedFolder(filePath: string, skipFolders: string[]): boolean
  * If the Issues Comments API returns 403, falls back to the Pull Request
  * Reviews API which may succeed when the token has "Pull requests: Write"
  * but not "Issues: Write" permission.
+ *
+ * @param prInfo GitHub PR identifiers.
+ * @param comment Comment body to post.
  */
 export async function postGitHubPRComment(
   prInfo: GitHubPRInfo,
@@ -451,6 +461,8 @@ async function postViaReviewApi(
 
 /**
  * Find existing Berean review comments on a GitHub PR (issue comments).
+ *
+ * @param prInfo GitHub PR identifiers.
  */
 export async function findGitHubBereanComments(prInfo: GitHubPRInfo): Promise<BereanComment[]> {
   const ctx = buildGitHubApiContext();
@@ -518,6 +530,8 @@ function extractReviewedIteration(content: string): number | undefined {
 
 /**
  * Get all commit SHAs for a GitHub PR.
+ *
+ * @param prInfo GitHub PR identifiers.
  */
 export async function getGitHubPRCommits(prInfo: GitHubPRInfo): Promise<string[]> {
   const ctx = buildGitHubApiContext();
@@ -542,6 +556,10 @@ export async function getGitHubPRCommits(prInfo: GitHubPRInfo): Promise<string[]
 
 /**
  * Update an existing issue comment on a GitHub PR.
+ *
+ * @param prInfo GitHub PR identifiers.
+ * @param commentId Existing comment ID to update.
+ * @param newContent Updated comment body.
  */
 export async function updateGitHubPRComment(
   prInfo: GitHubPRInfo,
@@ -599,6 +617,9 @@ export async function updateGitHubPRComment(
  *
  * Uses the "create a review comment" endpoint which attaches comments to
  * specific lines in the diff.  Deduplicates against existing review comments.
+ *
+ * @param prInfo GitHub PR identifiers.
+ * @param comments Inline comments to post.
  */
 export async function postGitHubInlineComments(
   prInfo: GitHubPRInfo,

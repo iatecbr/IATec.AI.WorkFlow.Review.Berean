@@ -512,6 +512,9 @@ function filterIssuesToReviewScope(
  *
  * Tries HTTP first (if a GitHub token is available), falls back to the SDK.
  * Returns up to 5 concise search queries, or [] on failure.
+ *
+ * @param diff PR diff used to derive queries.
+ * @param model Model identifier used for query generation.
  */
 export async function generateRuleQueries(diff: string, model: string): Promise<string[]> {
   const systemPrompt = 'You are a helpful assistant that generates concise search queries for code review guidelines.';
