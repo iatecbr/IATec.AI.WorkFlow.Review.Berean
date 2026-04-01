@@ -39,10 +39,12 @@ npm install -g @github/copilot
 
 ## Quick Start
 
-### Option 1: Environment Variables (recommended for CI/CD)
+### Option 1: Environment Variables (only when your token type is accepted by the Copilot endpoint)
 
 ```bash
 # GitHub Token (any of these)
+# Note: a regular PAT may fail with 403 on /copilot_internal/v2/token.
+# For local development, prefer `berean auth login`.
 export GITHUB_TOKEN="ghp_xxxxx"
 # or: export GH_TOKEN="ghp_xxxxx"
 # or: export COPILOT_GITHUB_TOKEN="ghp_xxxxx"
@@ -84,7 +86,7 @@ All settings can be configured via environment variables, ideal for CI/CD:
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `GITHUB_TOKEN` | GitHub token for Copilot API and GitHub PRs | Yes* |
+| `GITHUB_TOKEN` | GitHub token for GitHub PRs and HTTP Copilot auth attempts | Yes* |
 | `GH_TOKEN` | Alternative to GITHUB_TOKEN (GitHub CLI compat.) | Yes* |
 | `COPILOT_GITHUB_TOKEN` | Alternative to GITHUB_TOKEN (highest priority) | Yes* |
 | `GITHUBTOKEN` | Alternative (Azure DevOps Variable Groups format) | Yes* |
@@ -99,7 +101,7 @@ All settings can be configured via environment variables, ideal for CI/CD:
 | `BEREANMAXRULESCHARS` | Alternative (Azure DevOps Variable Groups format) | No |
 | `BEREAN_VERBOSE` | Verbose logging (token diagnostics and external calls) | No |
 
-\* At least one GitHub token is required (or login via Copilot CLI).
+\* For Copilot, an environment token only works if that token type is accepted by the token exchange endpoint. Personal access tokens may fail with `403 Resource not accessible by personal access token`. For local development, use `berean auth login`.
 
 **Configuration priority:** Environment variable → Config file (`~/.berean/config.json`) → Default value
 

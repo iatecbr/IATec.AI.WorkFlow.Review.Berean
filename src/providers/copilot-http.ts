@@ -42,6 +42,11 @@ async function getCopilotToken(githubToken: string): Promise<string> {
 
   if (!response.ok) {
     const body = await response.text();
+    if (response.status === 403 && body.includes('Resource not accessible by personal access token')) {
+      throw new Error(
+        'Token exchange failed (403): the configured GitHub token is a personal access token, and this Copilot endpoint does not accept PATs. Remove GITHUB_TOKEN/GH_TOKEN/COPILOT_GITHUB_TOKEN and authenticate with `berean auth login`, or provide a GitHub token type that is allowed to exchange for a Copilot token.',
+      );
+    }
     throw new Error(`Token exchange failed (${response.status}): ${body}`);
   }
 

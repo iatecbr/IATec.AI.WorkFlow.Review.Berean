@@ -20,22 +20,28 @@ function ensureConfigDir(): void {
 }
 
 /**
- * Get GitHub token from environment variables (SDK priority order)
- * Also checks Azure DevOps variable naming conventions
+ * Get GitHub token for GitHub REST API usage.
+ *
+ * For GitHub PR operations, prefer the conventional GITHUB_TOKEN first,
+ * then fall back to the other compatible variable names.
  */
 export function getGitHubToken(): string | null {
-  return getGitHubTokenFromAzure();
+  return process.env.GITHUB_TOKEN
+    || process.env.GH_TOKEN
+    || process.env.COPILOT_GITHUB_TOKEN
+    || process.env.GITHUBTOKEN
+    || null;
 }
 
 /**
- * Get the source env var for the GitHub token (if any)
+ * Get the source env var for the GitHub REST API token (if any)
  */
 export function getGitHubTokenSource(): string | null {
-  if (process.env.COPILOT_GITHUB_TOKEN) return 'COPILOT_GITHUB_TOKEN';
-  if (process.env.GH_TOKEN) return 'GH_TOKEN';
-  if (process.env.GITHUB_TOKEN) return 'GITHUB_TOKEN';
-  if (process.env.GITHUBTOKEN) return 'GITHUBTOKEN';
-  return null;
+   if (process.env.GITHUB_TOKEN) return 'GITHUB_TOKEN';
+   if (process.env.GH_TOKEN) return 'GH_TOKEN';
+   if (process.env.COPILOT_GITHUB_TOKEN) return 'COPILOT_GITHUB_TOKEN';
+   if (process.env.GITHUBTOKEN) return 'GITHUBTOKEN';
+   return null;
 }
 
 /**
@@ -142,7 +148,9 @@ export function getMaxRulesChars(defaultMax?: number): number {
 }
 
 /**
- * Get GitHub token - also checks Azure DevOps common variable names
+ * Get GitHub token for Copilot/SDK flows.
+ *
+ * Keeps the existing priority used by the Copilot integration.
  */
 export function getGitHubTokenFromAzure(): string | null {
   return process.env.COPILOT_GITHUB_TOKEN

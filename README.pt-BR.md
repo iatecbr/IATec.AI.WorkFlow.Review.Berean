@@ -37,10 +37,12 @@ npm install -g @github/copilot
 
 ## Início Rápido
 
-### Opção 1: Variáveis de Ambiente (recomendado para CI/CD)
+### Opção 1: Variáveis de Ambiente (somente quando seu token for aceito pelo endpoint do Copilot)
 
 ```bash
 # Token do GitHub (qualquer uma dessas)
+# Atenção: um PAT comum pode falhar com 403 em /copilot_internal/v2/token.
+# Para uso local, prefira `berean auth login`.
 export GITHUB_TOKEN="ghp_xxxxx"
 # ou: export GH_TOKEN="ghp_xxxxx"
 # ou: export COPILOT_GITHUB_TOKEN="ghp_xxxxx"
@@ -82,7 +84,7 @@ Todas as configurações podem ser definidas via variáveis de ambiente, ideal p
 
 | Variável | Descrição | Obrigatório |
 |----------|-----------|-------------|
-| `GITHUB_TOKEN` | Token do GitHub para API do Copilot e PRs do GitHub | Sim* |
+| `GITHUB_TOKEN` | Token do GitHub para PRs do GitHub e tentativa de auth HTTP do Copilot | Sim* |
 | `GH_TOKEN` | Alternativa ao GITHUB_TOKEN (compat. GitHub CLI) | Sim* |
 | `COPILOT_GITHUB_TOKEN` | Alternativa ao GITHUB_TOKEN (prioridade máxima) | Sim* |
 | `GITHUBTOKEN` | Alternativa (formato Azure DevOps Variable Groups) | Sim* |
@@ -97,7 +99,7 @@ Todas as configurações podem ser definidas via variáveis de ambiente, ideal p
 | `BEREANMAXRULESCHARS` | Alternativa (formato Azure DevOps Variable Groups) | Não |
 | `BEREAN_VERBOSE` | Log detalhado (diagnóstico de tokens e chamadas externas) | Não |
 
-\* Pelo menos um token GitHub é necessário (ou login via Copilot CLI).
+\* Para o Copilot, um token de ambiente so funciona se esse tipo de token for aceito pelo endpoint de troca. PATs pessoais podem falhar com `403 Resource not accessible by personal access token`. Em ambiente local, use `berean auth login`.
 
 **Prioridade de configuração:** Variável de ambiente → Arquivo de config (`~/.berean/config.json`) → Valor padrão
 
@@ -132,7 +134,7 @@ berean auth status   # Verificar status da autenticação
 
 | Método | Como configurar | Uso |
 |--------|----------------|-----|
-| **Env var** (recomendado para CI/CD) | `export GITHUB_TOKEN="ghp_xxx"` | Automático, sem interação |
+| **Env var** (casos suportados em CI/CD) | `export GITHUB_TOKEN="..."` | So funciona quando o token consegue trocar por token do Copilot |
 | **Copilot CLI** (recomendado para dev) | `berean auth login` | Login interativo no navegador |
 
 ---
