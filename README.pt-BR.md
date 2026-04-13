@@ -554,4 +554,4 @@ MIT
 
 ---
 
-*Gerado com ❤️ por [Berean](https://github.com/rajada1/berean) 🔍*
+*Gerado com ❤️ por [Berean](https://github.com/iatecbr/IATec.AI.WorkFlow.Review.Berean) 🔍*

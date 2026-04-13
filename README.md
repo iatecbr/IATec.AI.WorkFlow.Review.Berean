@@ -380,4 +380,4 @@ MIT
 
 ---
 
-*Built with ❤️ by [Berean](https://github.com/rajada1/berean) 🔍*
+*Built with ❤️ by [Berean](https://github.com/iatecbr/IATec.AI.WorkFlow.Review.Berean) 🔍*
