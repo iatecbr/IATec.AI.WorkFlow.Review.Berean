@@ -1,6 +1,5 @@
-import { CopilotClient, approveAll } from '@github/copilot-sdk';
+import { CopilotClient, approveAll, type SessionEvent } from '@github/copilot-sdk';
 import { getGitHubTokenFromAzure } from '../services/credentials.js';
-import { chatCompletion } from './copilot-http.js';
 
 export interface ReviewIssue {
   severity: 'critical' | 'warning' | 'suggestion';
@@ -52,7 +51,7 @@ async function getClient(): Promise<CopilotClient> {
 
   const options: Record<string, unknown> = {};
   if (token) {
-    options.githubToken = token;
+    options.gitHubToken = token;
     options.useLoggedInUser = false;
   }
   // If no token, SDK will try: env vars (COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN) → stored CLI credentials → gh auth
@@ -76,151 +75,118 @@ export async function reviewCode(diff: string, options: ReviewOptions = {}): Pro
   const reviewScope = extractReviewScope(diff);
 
   try {
-    const client = await getClient();
-
+    const token = getGitHubTokenFromAzure();
     const { system, user } = buildReviewPrompt(language, diff, rules);
     const promptSize = system.length + user.length;
 
-    log(`[berean] Token source: ${getGitHubTokenFromAzure() ? 'env var' : 'SDK default'}`);
+    log(`[berean] Token source: ${token ? 'env var' : 'SDK default'}`);
     log(`[berean] Node version: ${process.version}`);
     log(`[berean] Prompt size: ${promptSize} chars (~${Math.round(promptSize / 4)} tokens)`);
-
-    // Quick connectivity test via SDK (30s) — if it fails, go straight to HTTP
-    log(`[berean] Starting client...`);
-    await client.start();
-    log(`[berean] Client started, testing SDK connectivity...`);
-
-    let sdkWorks = false;
-    const testSession = await client.createSession({ model, streaming: false, onPermissionRequest: approveAll });
-    try {
-      const testResponse = await testSession.sendAndWait({ prompt: 'Reply with just: OK' }, 30_000);
-      const testContent = testResponse?.data?.content ?? '';
-      if (testContent) {
-        sdkWorks = true;
-        log(`[berean] ✓ SDK works (test response: ${testContent.substring(0, 20)})`);
-      }
-    } catch (testErr) {
-      log(`[berean] ✗ SDK failed: ${testErr instanceof Error ? testErr.message : testErr}`);
-    }
 
     let content = '';
     const TIMEOUT_MS = 300_000; // 5 min
 
-    if (sdkWorks) {
-      log(`[berean] Using SDK for review...`);
-      const session = await client.createSession({
-        model,
-        streaming: false,
-        systemMessage: { content: system },
-        onPermissionRequest: approveAll,
-      });
+    const client = await getClient();
 
-      content = await new Promise<string>((resolve, reject) => {
-        const messages: string[] = [];
-        let gotMessage = false;
-        let settleTimer: ReturnType<typeof setTimeout> | null = null;
+    log(`[berean] Starting client...`);
+    await client.start();
+    log(`[berean] Client started, creating review session...`);
 
-        // Pick the best captured message: prefer JSON-like content over plain text
-        const pickBestMessage = (): string => {
-          // First pass: prefer a message that starts with '{'
-          for (let i = messages.length - 1; i >= 0; i--) {
-            if (messages[i].trimStart().startsWith('{')) return messages[i];
-          }
-          // Second pass: prefer a message that contains '{' (JSON may be embedded)
-          for (let i = messages.length - 1; i >= 0; i--) {
-            if (messages[i].includes('{')) return messages[i];
-          }
-          // Fallback: last message received
-          return messages[messages.length - 1] || '';
-        };
+    log(`[berean] Using SDK for review...`);
+    const session = await client.createSession({
+      model,
+      streaming: false,
+      systemMessage: { mode: 'replace', content: system },
+      onPermissionRequest: approveAll,
+      ...(token ? { gitHubToken: token } : {}),
+    });
 
-        function gotJsonLikeMessage(): boolean {
-          return messages.some(m => m.trimStart().startsWith('{'));
+    content = await new Promise<string>((resolve, reject) => {
+      const messages: string[] = [];
+      let gotMessage = false;
+      let settleTimer: ReturnType<typeof setTimeout> | null = null;
+
+      // Pick the best captured message: prefer JSON-like content over plain text
+      const pickBestMessage = (): string => {
+        // First pass: prefer a message that starts with '{'
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (messages[i].trimStart().startsWith('{')) return messages[i];
         }
+        // Second pass: prefer a message that contains '{' (JSON may be embedded)
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (messages[i].includes('{')) return messages[i];
+        }
+        // Fallback: last message received
+        return messages[messages.length - 1] || '';
+      };
 
-        const timeoutId = setTimeout(() => {
-          unsubscribe();
-          if (gotMessage && messages.length > 0) {
-            log(`[berean] Timeout reached but got response, using best of ${messages.length} message(s)`);
-            resolve(pickBestMessage());
-          } else {
-            reject(new Error(`No response received after ${TIMEOUT_MS / 1000}s`));
-          }
-        }, TIMEOUT_MS);
+      function gotJsonLikeMessage(): boolean {
+        return messages.some(m => m.trimStart().startsWith('{'));
+      }
 
-        const settle = () => {
-          if (settleTimer) clearTimeout(settleTimer);
-          // Use shorter settle time if we already have JSON-like content, longer if we only have thinking text
-          const delay = gotJsonLikeMessage() ? 5_000 : 15_000;
-          settleTimer = setTimeout(() => {
-            if (messages.length > 0) {
-              clearTimeout(timeoutId);
-              unsubscribe();
-              const best = pickBestMessage();
-              log(`[berean] Response settled (no new events for ${delay / 1000}s), picked best of ${messages.length} message(s)`);
-              resolve(best);
-            }
-          }, delay);
-        };
+      const timeoutId = setTimeout(() => {
+        unsubscribe();
+        if (gotMessage && messages.length > 0) {
+          log(`[berean] Timeout reached but got response, using best of ${messages.length} message(s)`);
+          resolve(pickBestMessage());
+        } else {
+          reject(new Error(`No response received after ${TIMEOUT_MS / 1000}s`));
+        }
+      }, TIMEOUT_MS);
 
-        const unsubscribe = session.on((event: Record<string, unknown>) => {
-          const eventType = event.type as string;
-          log(`[berean] Event: ${eventType}`);
-
-          if (eventType === 'assistant.message') {
-            const data = event.data as Record<string, unknown>;
-            const msgContent = data?.content as string;
-            if (msgContent) {
-              messages.push(msgContent);
-              log(`[berean] Message #${messages.length} received (${msgContent.length} chars, json-like: ${msgContent.trimStart().startsWith('{')})`);
-            }
-            gotMessage = true;
-            settle();
-          } else if (eventType === 'session.idle') {
-            if (settleTimer) clearTimeout(settleTimer);
+      const settle = () => {
+        if (settleTimer) clearTimeout(settleTimer);
+        // Use shorter settle time if we already have JSON-like content, longer if we only have thinking text
+        const delay = gotJsonLikeMessage() ? 5_000 : 15_000;
+        settleTimer = setTimeout(() => {
+          if (messages.length > 0) {
             clearTimeout(timeoutId);
             unsubscribe();
-            log(`[berean] session.idle received`);
-            resolve(pickBestMessage());
-          } else if (eventType === 'session.error') {
-            if (settleTimer) clearTimeout(settleTimer);
-            clearTimeout(timeoutId);
-            unsubscribe();
-            const data = event.data as Record<string, string>;
-            reject(new Error(data?.message ?? 'Session error'));
-          } else {
-            if (gotMessage) settle();
+            const best = pickBestMessage();
+            log(`[berean] Response settled (no new events for ${delay / 1000}s), picked best of ${messages.length} message(s)`);
+            resolve(best);
           }
-        });
+        }, delay);
+      };
 
-        log(`[berean] Sending prompt (${user.length} chars)...`);
-        session.send({ prompt: user }).catch((e: Error) => {
+      const unsubscribe = session.on((event: SessionEvent) => {
+        const eventType = event.type as string;
+        log(`[berean] Event: ${eventType}`);
+
+        if (eventType === 'assistant.message') {
+          const data = event.data as Record<string, unknown>;
+          const msgContent = data?.content as string;
+          if (msgContent) {
+            messages.push(msgContent);
+            log(`[berean] Message #${messages.length} received (${msgContent.length} chars, json-like: ${msgContent.trimStart().startsWith('{')})`);
+          }
+          gotMessage = true;
+          settle();
+        } else if (eventType === 'session.idle') {
           if (settleTimer) clearTimeout(settleTimer);
           clearTimeout(timeoutId);
           unsubscribe();
-          reject(e);
-        });
+          log(`[berean] session.idle received`);
+          resolve(pickBestMessage());
+        } else if (eventType === 'session.error') {
+          if (settleTimer) clearTimeout(settleTimer);
+          clearTimeout(timeoutId);
+          unsubscribe();
+          const data = event.data as Record<string, string>;
+          reject(new Error(data?.message ?? 'Session error'));
+        } else {
+          if (gotMessage) settle();
+        }
       });
-    } else {
-      // SDK doesn't work — use direct HTTP API
-      const token = getGitHubTokenFromAzure();
-      if (!token) {
-        return { success: false, error: 'No GitHub token available for HTTP fallback', model };
-      }
-      log(`[berean] Using direct HTTP API for review...`);
-      content = await chatCompletion(token, model, system, user, TIMEOUT_MS);
-    }
 
-    if (!content || !looksLikeReviewJson(content)) {
-      // SDK returned empty or non-JSON (e.g. model "thinking" text) — try direct HTTP as fallback
-      const token = getGitHubTokenFromAzure();
-      if (token) {
-        const reason = !content ? 'empty' : 'non-JSON (possible model thinking text)';
-        log(`[berean] SDK returned ${reason}, trying direct HTTP API...`);
-        const httpContent = await chatCompletion(token, model, system, user, TIMEOUT_MS);
-        if (httpContent) content = httpContent;
-      }
-    }
+      log(`[berean] Sending prompt (${user.length} chars)...`);
+      session.send({ prompt: user }).catch((e: Error) => {
+        if (settleTimer) clearTimeout(settleTimer);
+        clearTimeout(timeoutId);
+        unsubscribe();
+        reject(e);
+      });
+    });
 
     if (!content) {
       return { success: false, error: 'Empty response from API', model };
@@ -233,34 +199,7 @@ export async function reviewCode(diff: string, options: ReviewOptions = {}): Pro
     }
     return result;
   } catch (error) {
-    // If SDK fails completely, try direct HTTP fallback
     const errMsg = error instanceof Error ? error.message : 'Unknown error';
-    const token = getGitHubTokenFromAzure();
-
-    if (
-      token &&
-      (errMsg.includes('Timeout') || errMsg.includes('No response') || errMsg.includes('session.idle'))
-    ) {
-      log(`[berean] SDK failed (${errMsg}), falling back to direct HTTP API...`);
-      try {
-        const { system: systemFallback, user: userFallback } = buildReviewPrompt(
-          options.language ?? 'English',
-          diff,
-          options.rules,
-        );
-        const content = await chatCompletion(token, model, systemFallback, userFallback, 300_000);
-        if (content) {
-          const result = parseReviewResponse(content, model, reviewScope);
-          if (result.issues && confidenceThreshold) {
-            result.issues = result.issues.filter(i => (i.confidence || 100) >= confidenceThreshold);
-          }
-          return result;
-        }
-      } catch (httpError) {
-        log(`[berean] HTTP fallback also failed: ${httpError instanceof Error ? httpError.message : httpError}`);
-      }
-    }
-
     return { success: false, error: errMsg, model };
   }
 }
@@ -366,21 +305,6 @@ function extractJsonFromMixedContent(content: string): Record<string, unknown> |
     searchFrom = braceIndex + 1;
   }
   return null;
-}
-
-/**
- * Check if content looks like it could be valid review JSON (or contains JSON).
- * Used to decide whether to fall back to HTTP API.
- */
-function looksLikeReviewJson(content: string): boolean {
-  const trimmed = content.trim();
-  // Direct JSON object
-  if (trimmed.startsWith('{')) return true;
-  // JSON inside markdown code block
-  if (trimmed.includes('```json') || trimmed.includes('```\n{')) return true;
-  // Contains a JSON-like structure with expected review fields
-  if (trimmed.includes('"summary"') && trimmed.includes('"recommendation"')) return true;
-  return false;
 }
 
 // ─── Prompt ───────────────────────────────────────────────────────────────────
@@ -620,28 +544,15 @@ ${diff.substring(0, 2_000)}`;
 
   let content = '';
 
-  // Try HTTP first — lighter and faster
-  const token = getGitHubTokenFromAzure();
-  if (token) {
-    try {
-      content = await chatCompletion(token, model, systemPrompt, userPrompt, 30_000);
-    } catch (e) {
-      log(`[berean] generateRuleQueries HTTP failed: ${e instanceof Error ? e.message : e}`);
-    }
-  }
-
-  // SDK fallback
-  if (!content) {
-    try {
-      const client = await getClient();
-      await client.start();
-      const session = await client.createSession({ model, streaming: false, onPermissionRequest: approveAll });
-      const response = await session.sendAndWait({ prompt: userPrompt }, 30_000);
-      content = (response?.data?.content as string) ?? '';
-    } catch (e) {
-      log(`[berean] generateRuleQueries SDK failed: ${e instanceof Error ? e.message : e}`);
-      return [];
-    }
+  try {
+    const client = await getClient();
+    await client.start();
+    const session = await client.createSession({ model, streaming: false, onPermissionRequest: approveAll });
+    const response = await session.sendAndWait({ prompt: userPrompt }, 30_000);
+    content = (response?.data?.content as string) ?? '';
+  } catch (e) {
+    log(`[berean] generateRuleQueries SDK failed: ${e instanceof Error ? e.message : e}`);
+    return [];
   }
 
   if (!content) return [];

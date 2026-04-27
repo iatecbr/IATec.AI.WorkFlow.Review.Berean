@@ -1,6 +1,6 @@
 {
   "name": "berean",
-  "version": "1.8.2",
+  "version": "1.8.3",
   "description": "AI-powered code review CLI for GitHub and Azure DevOps PRs using GitHub Copilot",
   "main": "dist/index.js",
   "bin": {
@@ -32,7 +32,7 @@
   "co-author": "IATec | Platform Team <dev.arch@iatec.com>",
   "license": "MIT",
   "dependencies": {
-    "@github/copilot-sdk": "^0.2.2",
+    "@github/copilot-sdk": "^0.3.0",
     "chalk": "^5.6.2",
     "commander": "^14.0.3",
     "ora": "^9.4.0"
