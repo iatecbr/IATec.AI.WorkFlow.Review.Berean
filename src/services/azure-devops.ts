@@ -233,6 +233,8 @@ export interface FetchDiffOptions {
   fromIterationId?: number;
   /** Commit IDs that should be included in the current review scope */
   newCommitIds?: string[];
+  /** Last commit included in the previous review, used as the base for commit-range diffs */
+  previousCommitId?: string;
   /** Folder paths to exclude from the diff (e.g. ['node_modules', 'dist', 'src/generated']) */
   skipFolders?: string[];
 }

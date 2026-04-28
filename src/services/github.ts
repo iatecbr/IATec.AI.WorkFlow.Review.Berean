@@ -250,7 +250,14 @@ export async function fetchGitHubPRDiff(
     let allFiles: GitHubFile[] = [];
 
     if (options.newCommitIds && options.newCommitIds.length > 0) {
-      allFiles = await fetchGitHubCommitFiles(prInfo, options.newCommitIds, ctx);
+      allFiles = options.previousCommitId
+        ? await fetchGitHubCompareFiles(
+          prInfo,
+          options.previousCommitId,
+          options.newCommitIds[options.newCommitIds.length - 1],
+          ctx,
+        )
+        : await fetchGitHubCommitFiles(prInfo, options.newCommitIds, ctx);
     } else {
       // ── 2. Fetch changed files (paginated) ──────────────────────────────────
       let page = 1;
@@ -419,12 +426,31 @@ async function fetchGitHubCommitFiles(
         additions: existing.additions + file.additions,
         deletions: existing.deletions + file.deletions,
         changes: existing.changes + file.changes,
-        patch: [existing.patch, file.patch].filter(Boolean).join('\n'),
+        patch: file.patch ?? existing.patch,
       });
     }
   }
 
   return [...filesByName.values()];
+}
+
+async function fetchGitHubCompareFiles(
+  prInfo: GitHubPRInfo,
+  baseCommitId: string,
+  headCommitId: string,
+  ctx: GitHubApiContext,
+): Promise<GitHubFile[]> {
+  const compareUrl = `https://api.github.com/repos/${encodeURIComponent(prInfo.owner)}/${encodeURIComponent(prInfo.repo)}/compare/${encodeURIComponent(baseCommitId)}...${encodeURIComponent(headCommitId)}`;
+  logRequest('GET', compareUrl);
+  const compareRes = await fetch(compareUrl, { headers: ctx.headers });
+
+  if (!compareRes.ok) {
+    log(`[berean] Failed to fetch compare range ${baseCommitId}...${headCommitId} for incremental diff (HTTP ${compareRes.status})`);
+    return [];
+  }
+
+  const comparison = await safeGitHubJsonParse<{ files?: GitHubFile[] }>(compareRes);
+  return comparison.files ?? [];
 }
 
 function getGitHubChangeType(status: string): string {

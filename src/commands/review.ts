@@ -111,6 +111,7 @@ export const reviewCommand = new Command('review')
       let allCommits: string[] = [];
       let newCommits: string[] = [];
       let fromIterationId: number | undefined;
+      let previousCommitId: string | undefined;
 
       if (options.skipIfReviewed || options.incremental) {
         const checkSpinner = ora('Checking for existing reviews...').start();
@@ -132,6 +133,7 @@ export const reviewCommand = new Command('review')
             content: latest.content,
           };
           reviewedCommits = latest.reviewedCommits ?? [];
+          previousCommitId = reviewedCommits[reviewedCommits.length - 1];
 
           newCommits = allCommits.filter(c => !reviewedCommits.includes(c));
 
@@ -179,6 +181,7 @@ export const reviewCommand = new Command('review')
       const diffResult = await provider.fetchPRDiff({
         fromIterationId,
         newCommitIds: newCommits.length > 0 ? newCommits : undefined,
+        previousCommitId,
         skipFolders,
       });
 
