@@ -133,7 +133,9 @@ export const reviewCommand = new Command('review')
             content: latest.content,
           };
           reviewedCommits = latest.reviewedCommits ?? [];
-          previousCommitId = reviewedCommits[reviewedCommits.length - 1];
+          if (reviewedCommits.length > 0) {
+            previousCommitId = reviewedCommits[reviewedCommits.length - 1];
+          }
 
           newCommits = allCommits.filter(c => !reviewedCommits.includes(c));
 
