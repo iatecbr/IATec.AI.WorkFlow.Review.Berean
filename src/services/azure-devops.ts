@@ -231,6 +231,8 @@ export async function fetchPRBasicInfo(prInfo: PRInfo): Promise<PRBasicInfoResul
 export interface FetchDiffOptions {
   /** When set, only returns changes since this iteration (incremental mode) */
   fromIterationId?: number;
+  /** Commit IDs that should be included in the current review scope */
+  newCommitIds?: string[];
   /** Folder paths to exclude from the diff (e.g. ['node_modules', 'dist', 'src/generated']) */
   skipFolders?: string[];
 }
@@ -333,7 +335,9 @@ export async function fetchPRDiff(prInfo: PRInfo, options: FetchDiffOptions = {}
 
       if (commitsRes.ok) {
         const commitsData = await safeJsonParse<{ value: Array<{ commitId: string }> }>(commitsRes);
-        const commits = commitsData.value ?? [];
+        const commits = options.newCommitIds && options.newCommitIds.length > 0
+          ? (commitsData.value ?? []).filter(c => options.newCommitIds?.includes(c.commitId))
+          : commitsData.value ?? [];
 
         for (const commit of commits) {
           const commitChangesUrl = `${ctx.apiBase}/git/repositories/${prInfo.repository}/commits/${commit.commitId}/changes?api-version=7.1`;
@@ -355,6 +359,8 @@ export async function fetchPRDiff(prInfo: PRInfo, options: FetchDiffOptions = {}
     // ── 4. Build diff header ───────────────────────────────────────────────────
     const incrementalLabel = options.fromIterationId
       ? ` (incremental: iteration ${options.fromIterationId} → ${currentIterationId})`
+      : options.newCommitIds && options.newCommitIds.length > 0
+        ? ` (incremental: ${options.newCommitIds.length} new commit${options.newCommitIds.length === 1 ? '' : 's'})`
       : '';
 
     let diffContent = `# Pull Request: ${prData.title}${incrementalLabel}\n`;

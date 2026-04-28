@@ -319,7 +319,7 @@ berean review <url> [options]
 #   --json                JSON output
 #   --post-comment        Post review as PR comment
 #   --inline              Post inline comments on specific lines
-#   --skip-if-reviewed    Skip if already reviewed
+#   --skip-if-reviewed    Skip if already reviewed; review only new commits when present
 #   --incremental         Only review new commits
 #   --force               Force review even with @berean: ignore
 ```
@@ -365,7 +365,7 @@ berean config set max-rules-chars 50000
 Add `@berean: ignore` to PR description to skip review. Use `--force` to override.
 
 ```bash
-# Skip if already reviewed
+# Skip if already reviewed; when new commits exist, only those commits are reviewed
 berean review <url> --post-comment --skip-if-reviewed
 
 # Incremental: only new commits
