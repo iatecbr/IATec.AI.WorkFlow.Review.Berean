@@ -208,7 +208,7 @@ berean review --org myorg --project myproj --repo myrepo --pr 123
 | `--list-models` | Lista modelos de IA disponíveis |
 | `--post-comment` | Posta review como comentário no PR |
 | `--inline` | Posta comentários inline em linhas específicas |
-| `--skip-if-reviewed` | Pula se o PR já foi revisado pelo Berean |
+| `--skip-if-reviewed` | Pula se o PR já foi revisado; quando houver novos commits, revisa apenas esses commits |
 | `--incremental` | Revisa apenas novos commits desde a última review |
 | `--force` | Força review mesmo se `@berean: ignore` estiver definido |
 
@@ -473,6 +473,8 @@ Use `--force` para ignorar isso e revisar mesmo assim.
 ```bash
 berean review <url> --post-comment --skip-if-reviewed
 ```
+
+Quando houver novos commits depois da última review, apenas esses commits entram no novo escopo de revisão.
 
 ### Reviews Incrementais
 

@@ -111,6 +111,7 @@ export const reviewCommand = new Command('review')
       let allCommits: string[] = [];
       let newCommits: string[] = [];
       let fromIterationId: number | undefined;
+      let previousCommitId: string | undefined;
 
       if (options.skipIfReviewed || options.incremental) {
         const checkSpinner = ora('Checking for existing reviews...').start();
@@ -132,6 +133,9 @@ export const reviewCommand = new Command('review')
             content: latest.content,
           };
           reviewedCommits = latest.reviewedCommits ?? [];
+          if (reviewedCommits.length > 0) {
+            previousCommitId = reviewedCommits[reviewedCommits.length - 1];
+          }
 
           newCommits = allCommits.filter(c => !reviewedCommits.includes(c));
 
@@ -146,8 +150,8 @@ export const reviewCommand = new Command('review')
             process.exit(0);
           }
 
-          // For incremental diff: use the iteration stored in the last review
-          if (options.incremental && existingReview.reviewedIterationId) {
+          // For new-commit diff: use the iteration stored in the last review when available
+          if ((options.incremental || options.skipIfReviewed) && existingReview.reviewedIterationId) {
             fromIterationId = existingReview.reviewedIterationId;
           }
 
@@ -176,7 +180,12 @@ export const reviewCommand = new Command('review')
         ? (options.skipFolders as string).split(',').map((f: string) => f.trim()).filter(Boolean)
         : [];
 
-      const diffResult = await provider.fetchPRDiff({ fromIterationId, skipFolders });
+      const diffResult = await provider.fetchPRDiff({
+        fromIterationId,
+        newCommitIds: newCommits.length > 0 ? newCommits : undefined,
+        previousCommitId,
+        skipFolders,
+      });
 
       if (!diffResult.success || !diffResult.diff) {
         diffSpinner.fail('Failed to fetch PR diff');

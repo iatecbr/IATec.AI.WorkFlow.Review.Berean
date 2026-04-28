@@ -27,6 +27,16 @@ interface GitHubApiContext {
   headers: Record<string, string>;
 }
 
+interface GitHubFile {
+  filename: string;
+  status: string;
+  patch?: string;
+  additions: number;
+  deletions: number;
+  changes: number;
+  previous_filename?: string;
+}
+
 function log(msg: string): void {
   if (process.env.BEREAN_VERBOSE) {
     console.error(msg);
@@ -193,8 +203,9 @@ export async function fetchGitHubPRBasicInfo(prInfo: GitHubPRInfo): Promise<PRBa
  * Fetch PR diff from the GitHub API.
  *
  * Uses the "list pull request files" endpoint which returns per-file patches.
- * The `fromIterationId` option from {@link FetchDiffOptions} is Azure-specific
- * and is ignored for GitHub; the full diff is always returned.
+ * GitHub does not expose Azure-style iterations. When `newCommitIds` is
+ * provided, only the files from those commits are returned; otherwise the full
+ * PR diff is returned.
  *
  * @param prInfo GitHub PR identifiers.
  * @param options Diff options (e.g., skipFolders).
@@ -236,72 +247,74 @@ export async function fetchGitHubPRDiff(
     const sourceBranch = prData.head.ref;
     const targetBranch = prData.base.ref;
 
-    // ── 2. Fetch changed files (paginated) ────────────────────────────────────
-    interface GitHubFile {
-      filename: string;
-      status: string;
-      patch?: string;
-      additions: number;
-      deletions: number;
-      changes: number;
-      previous_filename?: string;
-    }
-
     let allFiles: GitHubFile[] = [];
-    let page = 1;
-    const perPage = 100;
-    // Fetch up to MAX_FETCH_FILES before filtering/prioritizing (GitHub paginates at 100/page)
-    const MAX_FETCH_FILES = 300;
 
-    while (allFiles.length < MAX_FETCH_FILES) {
-      const filesUrl = `https://api.github.com/repos/${encodeURIComponent(prInfo.owner)}/${encodeURIComponent(prInfo.repo)}/pulls/${prInfo.pullNumber}/files?per_page=${perPage}&page=${page}`;
-      logRequest('GET', filesUrl);
-      const filesRes = await fetch(filesUrl, { headers: ctx.headers });
+    if (options.newCommitIds && options.newCommitIds.length > 0) {
+      allFiles = options.previousCommitId
+        ? await fetchGitHubCompareFiles(
+          prInfo,
+          options.previousCommitId,
+          options.newCommitIds[options.newCommitIds.length - 1],
+          ctx,
+        )
+        : await fetchGitHubCommitFiles(prInfo, options.newCommitIds, ctx);
+    } else {
+      // ── 2. Fetch changed files (paginated) ──────────────────────────────────
+      let page = 1;
+      const perPage = 100;
+      // Fetch up to MAX_FETCH_FILES before filtering/prioritizing (GitHub paginates at 100/page)
+      const MAX_FETCH_FILES = 300;
 
-      if (!filesRes.ok) break;
+      while (allFiles.length < MAX_FETCH_FILES) {
+        const filesUrl = `https://api.github.com/repos/${encodeURIComponent(prInfo.owner)}/${encodeURIComponent(prInfo.repo)}/pulls/${prInfo.pullNumber}/files?per_page=${perPage}&page=${page}`;
+        logRequest('GET', filesUrl);
+        const filesRes = await fetch(filesUrl, { headers: ctx.headers });
 
-      const files = await safeGitHubJsonParse<GitHubFile[]>(filesRes);
-      if (files.length === 0) break;
+        if (!filesRes.ok) break;
 
-      allFiles.push(...files);
-      if (files.length < perPage) break;
-      page++;
-    }
+        const files = await safeGitHubJsonParse<GitHubFile[]>(filesRes);
+        if (files.length === 0) break;
 
-    // ── 2b. Fallback: fetch unified diff when per-file patches are missing ───
-    // GitHub may omit the `patch` field for large PRs or files exceeding the
-    // diff size threshold. In that case, request the full unified diff via the
-    // diff media-type and back-fill missing patches.
-    const nonDeletedFiles = allFiles.filter(f => f.status !== 'removed');
-    const filesWithPatch = nonDeletedFiles.filter(f => f.patch);
+        allFiles.push(...files);
+        if (files.length < perPage) break;
+        page++;
+      }
 
-    if (nonDeletedFiles.length > 0 && filesWithPatch.length < nonDeletedFiles.length) {
-      log(`[berean] ${nonDeletedFiles.length - filesWithPatch.length} file(s) missing patch data — fetching unified diff as fallback`);
-      try {
-        const diffUrl = `https://api.github.com/repos/${encodeURIComponent(prInfo.owner)}/${encodeURIComponent(prInfo.repo)}/pulls/${prInfo.pullNumber}`;
-        logRequest('GET', `${diffUrl} (Accept: diff)`);
-        const diffRes = await fetch(diffUrl, {
-          headers: { ...ctx.headers, Accept: 'application/vnd.github.v3.diff' },
-        });
+      // ── 2b. Fallback: fetch unified diff when per-file patches are missing ──
+      // GitHub may omit the `patch` field for large PRs or files exceeding the
+      // diff size threshold. In that case, request the full unified diff via the
+      // diff media-type and back-fill missing patches.
+      const nonDeletedFiles = allFiles.filter(f => f.status !== 'removed');
+      const filesWithPatch = nonDeletedFiles.filter(f => f.patch);
 
-        if (diffRes.ok) {
-          const rawDiff = await diffRes.text();
-          const patchMap = parseUnifiedDiff(rawDiff);
-          let supplemented = 0;
+      if (nonDeletedFiles.length > 0 && filesWithPatch.length < nonDeletedFiles.length) {
+        log(`[berean] ${nonDeletedFiles.length - filesWithPatch.length} file(s) missing patch data — fetching unified diff as fallback`);
+        try {
+          const diffUrl = `https://api.github.com/repos/${encodeURIComponent(prInfo.owner)}/${encodeURIComponent(prInfo.repo)}/pulls/${prInfo.pullNumber}`;
+          logRequest('GET', `${diffUrl} (Accept: diff)`);
+          const diffRes = await fetch(diffUrl, {
+            headers: { ...ctx.headers, Accept: 'application/vnd.github.v3.diff' },
+          });
 
-          for (const file of allFiles) {
-            if (!file.patch && patchMap.has(file.filename)) {
-              file.patch = patchMap.get(file.filename);
-              supplemented++;
+          if (diffRes.ok) {
+            const rawDiff = await diffRes.text();
+            const patchMap = parseUnifiedDiff(rawDiff);
+            let supplemented = 0;
+
+            for (const file of allFiles) {
+              if (!file.patch && patchMap.has(file.filename)) {
+                file.patch = patchMap.get(file.filename);
+                supplemented++;
+              }
+            }
+
+            if (supplemented > 0) {
+              log(`[berean] Supplemented ${supplemented} file(s) with patches from unified diff`);
             }
           }
-
-          if (supplemented > 0) {
-            log(`[berean] Supplemented ${supplemented} file(s) with patches from unified diff`);
-          }
+        } catch (e) {
+          log(`[berean] Unified diff fallback failed: ${e instanceof Error ? e.message : e}`);
         }
-      } catch (e) {
-        log(`[berean] Unified diff fallback failed: ${e instanceof Error ? e.message : e}`);
       }
     }
 
@@ -331,7 +344,11 @@ export async function fetchGitHubPRDiff(
     const filesToProcess = sortedFiles.slice(0, MAX_FILES);
 
     // ── 5. Build diff content ─────────────────────────────────────────────────
-    let diffContent = `# Pull Request: ${prData.title}\n`;
+    const incrementalLabel = options.newCommitIds && options.newCommitIds.length > 0
+      ? ` (incremental: ${options.newCommitIds.length} new commit${options.newCommitIds.length === 1 ? '' : 's'})`
+      : '';
+
+    let diffContent = `# Pull Request: ${prData.title}${incrementalLabel}\n`;
     if (prData.body) {
       diffContent += `Description: ${prData.body}\n`;
     }
@@ -376,6 +393,64 @@ export async function fetchGitHubPRDiff(
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
+}
+
+async function fetchGitHubCommitFiles(
+  prInfo: GitHubPRInfo,
+  commitIds: string[],
+  ctx: GitHubApiContext,
+): Promise<GitHubFile[]> {
+  const filesByName = new Map<string, GitHubFile>();
+
+  for (const commitId of commitIds) {
+    const commitUrl = `https://api.github.com/repos/${encodeURIComponent(prInfo.owner)}/${encodeURIComponent(prInfo.repo)}/commits/${encodeURIComponent(commitId)}`;
+    logRequest('GET', commitUrl);
+    const commitRes = await fetch(commitUrl, { headers: ctx.headers });
+
+    if (!commitRes.ok) {
+      log(`[berean] Failed to fetch commit ${commitId} for incremental diff (HTTP ${commitRes.status})`);
+      continue;
+    }
+
+    const commit = await safeGitHubJsonParse<{ files?: GitHubFile[] }>(commitRes);
+    for (const file of commit.files ?? []) {
+      const existing = filesByName.get(file.filename);
+      if (!existing) {
+        filesByName.set(file.filename, { ...file });
+        continue;
+      }
+
+      filesByName.set(file.filename, {
+        ...existing,
+        ...file,
+        additions: existing.additions + file.additions,
+        deletions: existing.deletions + file.deletions,
+        changes: existing.changes + file.changes,
+        patch: file.patch ?? existing.patch,
+      });
+    }
+  }
+
+  return [...filesByName.values()];
+}
+
+async function fetchGitHubCompareFiles(
+  prInfo: GitHubPRInfo,
+  baseCommitId: string,
+  headCommitId: string,
+  ctx: GitHubApiContext,
+): Promise<GitHubFile[]> {
+  const compareUrl = `https://api.github.com/repos/${encodeURIComponent(prInfo.owner)}/${encodeURIComponent(prInfo.repo)}/compare/${encodeURIComponent(baseCommitId)}...${encodeURIComponent(headCommitId)}`;
+  logRequest('GET', compareUrl);
+  const compareRes = await fetch(compareUrl, { headers: ctx.headers });
+
+  if (!compareRes.ok) {
+    log(`[berean] Failed to fetch compare range ${baseCommitId}...${headCommitId} for incremental diff (HTTP ${compareRes.status})`);
+    return [];
+  }
+
+  const comparison = await safeGitHubJsonParse<{ files?: GitHubFile[] }>(compareRes);
+  return comparison.files ?? [];
 }
 
 function getGitHubChangeType(status: string): string {
