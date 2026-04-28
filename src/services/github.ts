@@ -393,7 +393,7 @@ async function fetchGitHubCommitFiles(
   commitIds: string[],
   ctx: GitHubApiContext,
 ): Promise<GitHubFile[]> {
-  const files: GitHubFile[] = [];
+  const filesByName = new Map<string, GitHubFile>();
 
   for (const commitId of commitIds) {
     const commitUrl = `https://api.github.com/repos/${encodeURIComponent(prInfo.owner)}/${encodeURIComponent(prInfo.repo)}/commits/${encodeURIComponent(commitId)}`;
@@ -401,14 +401,30 @@ async function fetchGitHubCommitFiles(
     const commitRes = await fetch(commitUrl, { headers: ctx.headers });
 
     if (!commitRes.ok) {
+      log(`[berean] Failed to fetch commit ${commitId} for incremental diff (HTTP ${commitRes.status})`);
       continue;
     }
 
     const commit = await safeGitHubJsonParse<{ files?: GitHubFile[] }>(commitRes);
-    files.push(...(commit.files ?? []));
+    for (const file of commit.files ?? []) {
+      const existing = filesByName.get(file.filename);
+      if (!existing) {
+        filesByName.set(file.filename, { ...file });
+        continue;
+      }
+
+      filesByName.set(file.filename, {
+        ...existing,
+        ...file,
+        additions: existing.additions + file.additions,
+        deletions: existing.deletions + file.deletions,
+        changes: existing.changes + file.changes,
+        patch: [existing.patch, file.patch].filter(Boolean).join('\n'),
+      });
+    }
   }
 
-  return files;
+  return [...filesByName.values()];
 }
 
 function getGitHubChangeType(status: string): string {
