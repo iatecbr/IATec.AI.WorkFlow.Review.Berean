@@ -338,8 +338,9 @@ export async function fetchPRDiff(prInfo: PRInfo, options: FetchDiffOptions = {}
       if (commitsRes.ok) {
         const commitsData = await safeJsonParse<{ value: Array<{ commitId: string }> }>(commitsRes);
         const newCommitIds = options.newCommitIds;
+        const newCommitIdsSet = newCommitIds ? new Set(newCommitIds) : undefined;
         const commits = newCommitIds && newCommitIds.length > 0
-          ? (commitsData.value ?? []).filter(c => newCommitIds.includes(c.commitId))
+          ? (commitsData.value ?? []).filter(c => newCommitIdsSet?.has(c.commitId))
           : commitsData.value ?? [];
 
         for (const commit of commits) {
