@@ -15,6 +15,7 @@
 - 🔄 **Proteção anti-loop** - Previne ciclos infinitos de review em CI/CD
 - 🌍 **Multi-idioma** - Respostas em qualquer idioma
 - 🏭 **Pronto para CI/CD** - 100% configurável via variáveis de ambiente
+- 🌐 **Web Server** Solicitações de revisão via HTTP
 
 ## Instalação
 
@@ -75,6 +76,69 @@ berean config set azure-pat <seu-pat>
 berean review https://github.com/owner/repo/pull/123
 berean review https://dev.azure.com/org/project/_git/repo/pullrequest/123
 ```
+
+### Opção 3:  Webserver HTTP & Docker
+
+#### Usando o Webserver HTTP
+
+O Berean pode ser executado como um servidor HTTP para receber requisições de review via API REST.
+
+#### Iniciar o servidor web:
+
+```bash
+berean web
+# ou especifique host/porta:
+HOST=0.0.0.0 PORT=3000 berean web
+```
+
+Por padrão, o servidor escuta em `http://localhost:3000`.
+
+#### Endpoints disponíveis:
+
+- `POST /review` — Executa review de um Pull Request
+  - Body JSON:
+    ```json
+    {
+      "pr_url": "https://github.com/owner/repo/pull/123",
+      "model": "gpt-4o",
+      "language": "English",
+      "postComment": true,
+      "inline": true
+    }
+    ```
+- `POST /auth` — Executa autenticação Copilot (útil para flows automatizados)
+
+Veja exemplos completos em [src/routes/review.ts](src/routes/review.ts) e [src/routes/auth.ts](src/routes/auth.ts).
+
+O banner do terminal mostra todos os IPs locais para acesso em rede.
+
+---
+
+#### Usando via Docker
+
+Você pode rodar o Berean facilmente em container Docker:
+
+#### Build da imagem:
+
+```bash
+docker build -t berean .
+```
+
+#### Rodar o webserver via Docker:
+
+```bash
+docker run --rm -p 3000:3000 \
+  -e GITHUB_TOKEN=ghp_xxxxx \
+  -e AZURE_DEVOPS_PAT=xxxxx \
+  berean
+```
+
+Por padrão, o container já inicia o webserver (`CMD [ "web" ]`).
+
+Você pode customizar variáveis de ambiente conforme necessário.
+
+---
+
 
 ---
 

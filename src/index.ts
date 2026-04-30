@@ -6,6 +6,7 @@ import { reviewCommand } from './commands/review.js';
 import { configCommand } from './commands/config.js';
 import { updateCommand } from './commands/update.js';
 import { modelsCommand } from './commands/models.js';
+import { webCommand } from './commands/web.js';
 import { stopClient } from './providers/github-copilot.js';
 
 // Enable verbose logging early so providers receive the flag before any action runs
@@ -25,6 +26,7 @@ program.addCommand(reviewCommand);
 program.addCommand(configCommand);
 program.addCommand(updateCommand);
 program.addCommand(modelsCommand);
+program.addCommand(webCommand);
 
 // Cleanup on exit
 process.on('beforeExit', async () => {

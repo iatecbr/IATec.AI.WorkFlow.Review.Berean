@@ -1,0 +1,69 @@
+import chalk from 'chalk';
+import os from 'node:os';
+
+function getLocalIPs(): string[] {
+  const interfaces = os.networkInterfaces();
+  const ips: string[] = [];
+
+  for (const iface of Object.values(interfaces)) {
+    for (const config of iface ?? []) {
+      if (config.family === 'IPv4' && !config.internal) {
+        ips.push(config.address);
+      }
+    }
+  }
+
+  return ips;
+}
+
+function printBanner(port: number) {
+  const ips = getLocalIPs();
+
+  const ascii = `
+██████╗ ███████╗██████╗ ███████╗ █████╗ ███╗   ██╗
+██╔══██╗██╔════╝██╔══██╗██╔════╝██╔══██╗████╗  ██║
+██████╔╝█████╗  ██████╔╝█████╗  ███████║██╔██╗ ██║
+██╔══██╗██╔══╝  ██╔══██╗██╔══╝  ██╔══██║██║╚██╗██║
+██████╔╝███████╗██║  ██║███████╗██║  ██║██║ ╚████║
+╚═════╝ ╚══════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝
+                     ██████                     
+                   ██████████                   
+                  ████████████                  
+                 ████▒    ▓████                 
+                ████████████████                
+               ██▒████████████ ██               
+              ███▓ ░  ▒██   ░ ████              
+              ███▓████████████▓███              
+          ▒██████▒█   ████   █░██████▒          
+        █████████ ████▓██████  █████████        
+       ▓█████████  █        ▓  ██████████       
+      ███████████    ██████    ███████████      
+     █████████████            █████████████     
+    ██████████████            ██████████████    
+   ████████████████          ████████████████   
+  ██████████████████▒       ██████████████████  
+ ██  █████████████████    █████████████████  ██ 
+█▓       ██████████████████████████████       ▓█
+█████           ███████████████▓           █████
+░███████░           ████████            ███████░
+ ███████████          ████          ▓██████████ 
+  ████████████▓        ██        ▓████████████  
+   ███████████████     █      ███████████████   
+    ████████████████████████████████████████`;
+
+  console.log(chalk.magenta(ascii));
+  console.log();
+  console.log(
+    `  ${chalk.green('Local access:')}    ${chalk.cyan(`http://localhost:${port}`)}`
+  );
+
+  for (const ip of ips) {
+    console.log(
+      `  ${chalk.green('Network access:')}  ${chalk.cyan(`http://${ip}:${port}`)}`
+    );
+  }
+
+  console.log();
+}
+
+export { printBanner };

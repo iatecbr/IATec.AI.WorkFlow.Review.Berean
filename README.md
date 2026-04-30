@@ -17,6 +17,7 @@ AI-powered code review CLI for **GitHub** and **Azure DevOps** Pull Requests usi
 - 🔄 **Anti-loop protection** - Prevents infinite review cycles in CI/CD
 - 🌍 **Multi-language** - Responses in any language
 - 🏭 **CI/CD ready** - 100% configurable via environment variables
+- 🌐 **Web Server** For handling review requests via HTTP
 
 ## Installation
 
@@ -36,6 +37,8 @@ npm install -g @github/copilot
 ```
 
 > **Note:** This is a private package — not published to npm. Install via clone + link.
+
+
 
 ## Quick Start
 
@@ -77,6 +80,66 @@ berean config set azure-pat <your-pat>
 berean review https://github.com/owner/repo/pull/123
 berean review https://dev.azure.com/org/project/_git/repo/pullrequest/123
 ```
+
+### Option 3: Webserver HTTP & Docker
+
+#### Using the HTTP Webserver
+
+Berean can be run as an HTTP server to receive review requests via REST API.
+
+##### Start the web server:
+
+```bash
+berean web
+# or specify host/port:
+HOST=0.0.0.0 PORT=3000 berean web
+```
+
+By default, the server listens at `http://localhost:3000`.
+
+##### Available Endpoints:
+
+- `POST /review` — Executes a Pull Request review
+  - Body JSON:
+    ```json
+    {
+      "pr_url": "https://github.com/owner/repo/pull/123",
+      "model": "gpt-4o",
+      "language": "English",
+      "postComment": true,
+      "inline": true
+    }
+    ```
+- `POST /auth` — Executes Copilot authentication (useful for automated flows)
+
+See full examples in [src/routes/review.ts](src/routes/review.ts) and [src/routes/auth.ts](src/routes/auth.ts).
+
+The terminal banner shows all local IPs for network access.
+
+---
+
+#### Using via Docker
+
+You can easily run Berean in a Docker container:
+
+#### Build the imagem:
+
+```bash
+docker build -t berean .
+```
+
+#### Run the webserver via Docker:
+
+```bash
+docker run --rm -p 3000:3000 \
+  -e GITHUB_TOKEN=ghp_xxxxx \
+  -e AZURE_DEVOPS_PAT=xxxxx \
+  berean
+```
+
+By default, the container starts the webserver (`CMD [ "web" ]`).
+
+You can customize environment variables as needed.
 
 ---
 
