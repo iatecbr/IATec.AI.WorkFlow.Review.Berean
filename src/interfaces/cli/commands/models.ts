@@ -2,9 +2,8 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import { createInterface } from 'readline';
-import { fetchModels, ModelDetail, stopClient } from '../providers/github-copilot.js';
-import { isAuthenticated } from '../services/copilot-auth.js';
-import { getDefaultModel, getDefaultModelSource, saveConfig } from '../services/credentials.js';
+import { listAvailableModels, stopProviders, checkAuth } from '../../../composition/container.js';
+import { getDefaultModel, getDefaultModelSource, saveConfig } from '../../../services/credentials.js';
 
 export const modelsCommand = new Command('models')
   .description('List and select AI models');
@@ -13,7 +12,7 @@ modelsCommand
   .command('list')
   .description('List available AI models')
   .action(async () => {
-    if (!isAuthenticated()) {
+    if (!checkAuth()) {
       console.log(chalk.red('✗ Not authenticated. Run: berean auth login'));
       process.exit(1);
     }
@@ -21,7 +20,7 @@ modelsCommand
     const spinner = ora('Fetching available models...').start();
 
     try {
-      const models = await fetchModels();
+      const models = await listAvailableModels();
       spinner.succeed('Available models:\n');
 
       const currentModel = getDefaultModel();
@@ -65,7 +64,7 @@ modelsCommand
       console.log(chalk.red(`  ${error instanceof Error ? error.message : 'Unknown error'}`));
       process.exit(1);
     } finally {
-      await stopClient();
+      await stopProviders();
     }
   });
 
@@ -73,7 +72,7 @@ modelsCommand
   .command('set <model>')
   .description('Set default AI model')
   .action(async (model: string) => {
-    if (!isAuthenticated()) {
+    if (!checkAuth()) {
       console.log(chalk.red('✗ Not authenticated. Run: berean auth login'));
       process.exit(1);
     }
@@ -81,7 +80,7 @@ modelsCommand
     const spinner = ora('Verifying model...').start();
 
     try {
-      const models = await fetchModels();
+      const models = await listAvailableModels();
       const validModel = models.find(m => m.id === model);
 
       if (!validModel) {
@@ -98,7 +97,7 @@ modelsCommand
       console.log(chalk.red(`  ${error instanceof Error ? error.message : 'Unknown error'}`));
       process.exit(1);
     } finally {
-      await stopClient();
+      await stopProviders();
     }
   });
 
@@ -106,7 +105,7 @@ modelsCommand
   .command('select')
   .description('Interactively select default AI model')
   .action(async () => {
-    if (!isAuthenticated()) {
+    if (!checkAuth()) {
       console.log(chalk.red('✗ Not authenticated. Run: berean auth login'));
       process.exit(1);
     }
@@ -114,7 +113,7 @@ modelsCommand
     const spinner = ora('Fetching available models...').start();
 
     try {
-      const models = await fetchModels();
+      const models = await listAvailableModels();
       spinner.stop();
 
       const currentModel = getDefaultModel();
@@ -161,7 +160,7 @@ modelsCommand
       console.log(chalk.red(`  ${error instanceof Error ? error.message : 'Unknown error'}`));
       process.exit(1);
     } finally {
-      await stopClient();
+      await stopProviders();
     }
   });
 
