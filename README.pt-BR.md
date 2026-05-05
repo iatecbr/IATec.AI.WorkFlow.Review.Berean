@@ -15,7 +15,9 @@
 - 🔄 **Proteção anti-loop** - Previne ciclos infinitos de review em CI/CD
 - 🌍 **Multi-idioma** - Respostas em qualquer idioma
 - 🏭 **Pronto para CI/CD** - 100% configurável via variáveis de ambiente
-- 🌐 **Web Server** Solicitações de revisão via HTTP
+- 🌐 **Web Server** - Solicitações de revisão via API REST HTTP
+- 🦙 **Suporte a Ollama** - Execute reviews com modelos locais via Ollama (sem cloud)
+- 🔁 **Modelo fallback** - Retry automático com provedor secundário quando o principal falhar
 
 ## Instalação
 
@@ -162,6 +164,14 @@ Todas as configurações podem ser definidas via variáveis de ambiente, ideal p
 | `BEREAN_MAX_RULES_CHARS` | Máximo de caracteres para regras | Não |
 | `BEREANMAXRULESCHARS` | Alternativa (formato Azure DevOps Variable Groups) | Não |
 | `BEREAN_VERBOSE` | Log detalhado (diagnóstico de tokens e chamadas externas) | Não |
+| `BEREAN_DEFAULT_MODEL` | Alias canônico para `BEREAN_MODEL` (tem prioridade sobre ele) | Não |
+| `BEREAN_FALLBACK_MODEL` | Modelo fallback quando o principal falhar (ex: `gpt-4o`, `ollama:llama3.2`) | Não |
+| `BEREAN_OLLAMA_ENDPOINT` | URL base do servidor Ollama (ex: `http://localhost:11434`) | Para Ollama |
+| `OLLAMA_ENDPOINT` | Alternativa a `BEREAN_OLLAMA_ENDPOINT` | Para Ollama |
+| `BEREAN_OLLAMA_MODEL` | Modelo Ollama padrão (ex: `llama3.2`, `gemma4:12b`) | Para Ollama |
+| `OLLAMA_MODEL` | Alternativa a `BEREAN_OLLAMA_MODEL` | Para Ollama |
+| `BEREAN_OLLAMA_API_KEY` | Chave de API para endpoints Ollama protegidos | Não |
+| `OLLAMA_API_KEY` | Alternativa a `BEREAN_OLLAMA_API_KEY` | Não |
 
 \* Para o Copilot, um token de ambiente so funciona se esse tipo de token for aceito pelo endpoint de troca. PATs pessoais podem falhar com `403 Resource not accessible by personal access token`. Em ambiente local, use `berean auth login`.
 
@@ -319,12 +329,17 @@ berean config path                # Mostra caminho do diretório de config
 |-------|-----------|---------------------|
 | `azure-pat` | PAT do Azure DevOps | `AZURE_DEVOPS_PAT` |
 | `default-model` | Modelo de IA padrão | `BEREAN_MODEL` |
+| `fallback-model` | Modelo usado quando o principal falhar | `BEREAN_FALLBACK_MODEL` |
 | `language` | Idioma das respostas | `BEREAN_LANGUAGE` |
 | `max-rules-chars` | Máximo de caracteres para regras | `BEREAN_MAX_RULES_CHARS` |
+| `ollama-endpoint` | URL do servidor Ollama | `BEREAN_OLLAMA_ENDPOINT` |
+| `ollama-model` | Modelo Ollama padrão | `BEREAN_OLLAMA_MODEL` |
 
 **Exemplo:**
 
 ```bash
+berean config set fallback-model copilot:gpt-4o
+berean config set ollama-endpoint http://localhost:11434
 berean config set max-rules-chars 50000
 ```
 
@@ -514,6 +529,90 @@ steps:
       GITHUB_TOKEN: $(GithubToken)
       BEREAN_MODEL: claude-sonnet-4
       BEREAN_LANGUAGE: Português do Brasil
+```
+
+---
+
+## Provedor Ollama
+
+O Berean suporta inferência local via [Ollama](https://ollama.com/), sem necessidade de credenciais de cloud.
+
+### Configuração
+
+1. Instale e inicie o Ollama: https://ollama.com/download
+2. Baixe um modelo: `ollama pull llama3.2`
+3. Configure o Berean:
+
+```bash
+# Via variáveis de ambiente
+export BEREAN_OLLAMA_ENDPOINT="http://localhost:11434"
+export BEREAN_OLLAMA_MODEL="llama3.2"  # opcional — pode usar o prefixo do modelo
+
+# Ou via config
+berean config set ollama-endpoint http://localhost:11434
+berean config set ollama-model llama3.2
+```
+
+### Usando Modelos Ollama
+
+Prefixe qualquer nome de modelo com `ollama:` para rotear ao Ollama local:
+
+```bash
+berean review <url> --model ollama:llama3.2
+berean review <url> --model ollama:gemma4:12b
+berean review <url> --model ollama:qwen2.5-coder:14b
+```
+
+Definir `BEREAN_DEFAULT_MODEL` com o prefixo `ollama:` também funciona:
+
+```bash
+export BEREAN_DEFAULT_MODEL="ollama:llama3.2"
+berean review <url>
+```
+
+### Ollama com Endpoint Protegido
+
+Se o seu Ollama requer autenticação:
+
+```bash
+export BEREAN_OLLAMA_ENDPOINT="https://meu-ollama.exemplo.com"
+export BEREAN_OLLAMA_API_KEY="minha-chave"
+```
+
+---
+
+## Modelo Fallback
+
+Quando o provedor/modelo principal falha (HTTP 401, 429, erro de rede, etc.), o Berean tenta automaticamente com um fallback configurado.
+
+### Configuração
+
+```bash
+# Via variável de ambiente
+export BEREAN_FALLBACK_MODEL="copilot:gpt-4o"
+
+# Ou via arquivo de config
+berean config set fallback-model copilot:gpt-4o
+```
+
+### Exemplos
+
+```bash
+# Usar Ollama como principal e GitHub Copilot como fallback
+export BEREAN_DEFAULT_MODEL="ollama:llama3.2"
+export BEREAN_FALLBACK_MODEL="copilot:gpt-4o"
+berean review <url>
+
+# Usar Copilot como principal e Ollama local como fallback
+export BEREAN_DEFAULT_MODEL="copilot:gpt-4o"
+export BEREAN_FALLBACK_MODEL="ollama:llama3.2"
+berean review <url>
+```
+
+Quando o fallback é acionado, um evento de progresso é emitido:
+
+```
+Primary model failed (HTTP 401: "unauthorized"). Retrying with fallback model "gpt-4o"...
 ```
 
 ---
