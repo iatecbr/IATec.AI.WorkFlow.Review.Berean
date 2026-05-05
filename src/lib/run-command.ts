@@ -10,7 +10,7 @@ export interface RunResult {
 /** Executa `berean <args>` e devolve tudo de uma vez */
 export async function runCommand(args: string[]): Promise<RunResult> {
   return new Promise((resolve) => {
-    const proc = spawn('node', ['./dist/index.js', ...args], {
+    const proc = spawn('node', ['--no-warnings', './dist/index.js', ...args], {
       env: { ...process.env },
     });
 
@@ -27,7 +27,7 @@ export async function runCommand(args: string[]): Promise<RunResult> {
 
 /** Executa e retorna um Readable (para SSE / streaming) */
 export function streamCommand(args: string[]): Readable {
-  const proc = spawn('node', ['./dist/index.js', ...args], {
+  const proc = spawn('node', ['--no-warnings', './dist/index.js', ...args], {
     env: { ...process.env },
   });
 
