@@ -2,27 +2,27 @@ import type { FastifyInstance } from 'fastify';
 import { runReview } from '../../../composition/container.js';
 import { SseReviewPresenter } from '../presenters/sse-review.presenter.js';
 
+export interface ReviewRequestBody {
+  pr_url: string;
+  owner?: string;
+  org?: string;
+  project?: string;
+  repo?: string;
+  pr?: string;
+  model?: string;
+  language?: string;
+  postComment?: boolean;
+  inline?: boolean;
+  skipIfReviewed?: boolean;
+  skipFolders?: string;
+  incremental?: boolean;
+  force?: boolean;
+  verbose?: boolean;
+  rules?: string;
+}
+
 export async function reviewRoute(app: FastifyInstance) {
-  app.post<{
-    Body: {
-      pr_url: string;
-      owner?: string;
-      org?: string;
-      project?: string;
-      repo?: string;
-      pr?: string;
-      model?: string;
-      language?: string;
-      postComment?: boolean;
-      inline?: boolean;
-      skipIfReviewed?: boolean;
-      skipFolders?: string;
-      incremental?: boolean;
-      force?: boolean;
-      verbose?: boolean;
-      rules?: string;
-    };
-  }>('/review', {
+  app.post<{ Body: ReviewRequestBody }>('/review', {
     schema: {
       body: {
         type: 'object',
@@ -58,9 +58,9 @@ export async function reviewRoute(app: FastifyInstance) {
       pr,
       model,
       language,
-      postComment,
-      inline,
-      skipIfReviewed,
+      postComment = true,
+      inline = true,
+      skipIfReviewed = true,
       skipFolders,
       incremental,
       force,
