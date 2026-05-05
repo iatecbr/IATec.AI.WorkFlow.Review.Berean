@@ -54,10 +54,45 @@ export const BEREAN_USER_AGENT = `berean/${BEREAN_VERSION} (${process.platform} 
 
 export interface Config {
   default_model?: string;
+  fallback_model?: string;
   language?: string;
   azure_devops_pat?: string;
   max_rules_chars?: string;
+  ollama_endpoint?: string;
+  ollama_model?: string;
+  ollama_api_key?: string;
+  rules_path?: string;
   [key: string]: string | undefined;
+}
+// OLLAMA helpers
+// New canonical names: BEREAN_OLLAMA_* — old names kept for backward-compat.
+export function getOllamaEndpoint(): string | undefined {
+  return process.env.BEREAN_OLLAMA_ENDPOINT
+    || process.env.OLLAMA_ENDPOINT
+    || getConfig().ollama_endpoint;
+}
+
+export function getOllamaModel(): string | undefined {
+  const explicit = process.env.BEREAN_OLLAMA_MODEL
+    || process.env.OLLAMA_MODEL
+    || getConfig().ollama_model;
+  if (explicit) return explicit;
+
+  // Auto-derive from BEREAN_DEFAULT_MODEL when it carries the "ollama:" prefix.
+  const defaultModel = process.env.BEREAN_DEFAULT_MODEL
+    || process.env.BEREAN_MODEL
+    || getConfig().default_model;
+  if (defaultModel?.startsWith('ollama:')) {
+    return defaultModel.slice('ollama:'.length);
+  }
+
+  return undefined;
+}
+
+export function getOllamaApiKey(): string | undefined {
+  return process.env.BEREAN_OLLAMA_API_KEY
+    || process.env.OLLAMA_API_KEY
+    || getConfig().ollama_api_key;
 }
 
 function ensureConfigDir(): void {
@@ -129,9 +164,11 @@ export function getAzureDevOpsPATSource(): string | null {
  *   - Variable group "BereanModel" → env var "BEREANMODEL"
  */
 export function getDefaultModel(): string {
-  return process.env.BEREAN_MODEL
+  // BEREAN_DEFAULT_MODEL is canonical; BEREAN_MODEL kept for backward-compat.
+  return process.env.BEREAN_DEFAULT_MODEL
+    || process.env.BEREAN_MODEL
     || process.env.BEREANMODEL
-    || getConfig().default_model 
+    || getConfig().default_model
     || 'gpt-4o';
 }
 
@@ -139,6 +176,7 @@ export function getDefaultModel(): string {
  * Get the source of the current model config (for display)
  */
 export function getDefaultModelSource(): string {
+  if (process.env.BEREAN_DEFAULT_MODEL) return 'BEREAN_DEFAULT_MODEL env';
   if (process.env.BEREAN_MODEL) return 'BEREAN_MODEL env';
   if (process.env.BEREANMODEL) return 'BEREANMODEL env';
   if (getConfig().default_model) return 'config file';
@@ -146,13 +184,49 @@ export function getDefaultModelSource(): string {
 }
 
 /**
+ * Fallback model used when the primary provider/model fails.
+ * Set BEREAN_FALLBACK_MODEL to any model id (e.g. "gpt-4o", "ollama:llama3.2").
+ */
+export function getFallbackModel(): string | undefined {
+  return process.env.BEREAN_FALLBACK_MODEL || getConfig().fallback_model || undefined;
+}
+
+/**
+ * Hostname/IP the web server binds to.
+ * Priority: BEREAN_HOST → HOST → config file → '127.0.0.1'
+ */
+export function getServerHost(): string {
+  return process.env.BEREAN_HOST
+    || process.env.HOST
+    || (getConfig() as { host?: string }).host
+    || '127.0.0.1';
+}
+
+/**
+ * TCP port the web server listens on.
+ * Priority: BEREAN_PORT → PORT → config file → 3000
+ */
+export function getServerPort(): number {
+  const raw = process.env.BEREAN_PORT
+    || process.env.PORT
+    || (getConfig() as { port?: string }).port;
+  if (raw) {
+    const parsed = parseInt(raw, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return 3000;
+}
+
+/**
  * Get default language from env or config
  * Priority: BEREAN_LANGUAGE → BEREANLANGUAGE → config file → 'English'
  */
 export function getDefaultLanguage(): string {
-  return process.env.BEREAN_LANGUAGE
+  // BEREAN_DEFAULT_LANGUAGE is canonical; BEREAN_LANGUAGE kept for backward-compat.
+  return process.env.BEREAN_DEFAULT_LANGUAGE
+    || process.env.BEREAN_LANGUAGE
     || process.env.BEREANLANGUAGE
-    || getConfig().language 
+    || getConfig().language
     || 'English';
 }
 
@@ -160,6 +234,7 @@ export function getDefaultLanguage(): string {
  * Get the source of the current language config (for display)
  */
 export function getDefaultLanguageSource(): string {
+  if (process.env.BEREAN_DEFAULT_LANGUAGE) return 'BEREAN_DEFAULT_LANGUAGE env';
   if (process.env.BEREAN_LANGUAGE) return 'BEREAN_LANGUAGE env';
   if (process.env.BEREANLANGUAGE) return 'BEREANLANGUAGE env';
   if (getConfig().language) return 'config file';
@@ -171,7 +246,9 @@ export function getDefaultLanguageSource(): string {
  * Priority: BEREAN_RULES → BEREANRULES → config file → null
  */
 export function getRulesPath(): string | null {
-  return process.env.BEREAN_RULES
+  // BEREAN_RULES_PATH is canonical; BEREAN_RULES kept for backward-compat.
+  return process.env.BEREAN_RULES_PATH
+    || process.env.BEREAN_RULES
     || process.env.BEREANRULES
     || getConfig().rules_path
     || null;
