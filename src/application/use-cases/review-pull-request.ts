@@ -303,7 +303,7 @@ export async function reviewPullRequest(input: ReviewPullRequestInput): Promise<
         }
 
         newCommits = allCommits.filter(c => !reviewedCommitSet.has(c));
-        commitsToTag = allCommits.filter(c => reviewedCommitSet.has(c) || newCommits.includes(c));
+        commitsToTag = allCommits;
         if (input.skipIfReviewed && newCommits.length === 0) {
           return { status: 'skipped', reason: 'PR already reviewed by Berean (no new commits)' };
         }
