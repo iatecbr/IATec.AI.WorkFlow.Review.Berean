@@ -1,4 +1,4 @@
-import { getAzureDevOpsPATFromPipeline, getAzureDevOpsPATSource } from './credentials.js';
+import { getAzureDevOpsPATFromPipeline, getAzureDevOpsPATSource } from '../../../services/credentials.js';
 
 export interface PRInfo {
   organization: string;

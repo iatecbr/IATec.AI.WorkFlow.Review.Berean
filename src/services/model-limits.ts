@@ -1,4 +1,4 @@
-import { fetchModels } from '../providers/github-copilot.js';
+import { listAvailableModels } from '../providers/provider-registry.js';
 
 const CHARS_PER_TOKEN = 4;
 const DEFAULT_RULES_BUDGET_RATIO = 0.65;
@@ -8,7 +8,7 @@ export async function getModelMaxRulesChars(
   rulesBudgetRatio = DEFAULT_RULES_BUDGET_RATIO,
 ): Promise<number | undefined> {
   try {
-    const models = await fetchModels();
+    const models = await listAvailableModels();
     const match = models.find(m => m.id === modelId);
     if (match?.maxContextTokens && match.maxContextTokens > 0) {
       const ratio = rulesBudgetRatio > 0 && rulesBudgetRatio <= 1 ? rulesBudgetRatio : DEFAULT_RULES_BUDGET_RATIO;

@@ -6,6 +6,10 @@ AI-powered code review CLI for **GitHub** and **Azure DevOps** Pull Requests usi
 
 *Just as the Bereans examined everything carefully (Acts 17:11), this tool examines your code with diligence.*
 
+## Architecture
+
+Project architecture guidance and the target modular structure live in [docs/architecture.md](docs/architecture.md).
+
 ## Features
 
 - 🔐 **Multiple auth methods** - GitHub Token via env var, Copilot CLI, or BYOK
@@ -17,6 +21,9 @@ AI-powered code review CLI for **GitHub** and **Azure DevOps** Pull Requests usi
 - 🔄 **Anti-loop protection** - Prevents infinite review cycles in CI/CD
 - 🌍 **Multi-language** - Responses in any language
 - 🏭 **CI/CD ready** - 100% configurable via environment variables
+- 🌐 **Web Server** - Review requests via HTTP REST API
+- 🦙 **Ollama support** - Run reviews with local models via Ollama (no cloud required)
+- 🔁 **Fallback model** - Automatic retry with a secondary provider when the primary fails
 
 ## Installation
 
@@ -36,6 +43,8 @@ npm install -g @github/copilot
 ```
 
 > **Note:** This is a private package — not published to npm. Install via clone + link.
+
+
 
 ## Quick Start
 
@@ -78,6 +87,66 @@ berean review https://github.com/owner/repo/pull/123
 berean review https://dev.azure.com/org/project/_git/repo/pullrequest/123
 ```
 
+### Option 3: Webserver HTTP & Docker
+
+#### Using the HTTP Webserver
+
+Berean can be run as an HTTP server to receive review requests via REST API.
+
+##### Start the web server:
+
+```bash
+berean web
+# or specify host/port:
+HOST=0.0.0.0 PORT=3000 berean web
+```
+
+By default, the server listens at `http://localhost:3000`.
+
+##### Available Endpoints:
+
+- `POST /review` — Executes a Pull Request review
+  - Body JSON:
+    ```json
+    {
+      "pr_url": "https://github.com/owner/repo/pull/123",
+      "model": "gpt-4o",
+      "language": "English",
+      "postComment": true,
+      "inline": true
+    }
+    ```
+- `POST /auth` — Executes Copilot authentication (useful for automated flows)
+
+See full examples in [src/routes/review.ts](src/routes/review.ts) and [src/routes/auth.ts](src/routes/auth.ts).
+
+The terminal banner shows all local IPs for network access.
+
+---
+
+#### Using via Docker
+
+You can easily run Berean in a Docker container:
+
+#### Build the imagem:
+
+```bash
+docker build -t berean .
+```
+
+#### Run the webserver via Docker:
+
+```bash
+docker run --rm -p 3000:3000 \
+  -e GITHUB_TOKEN=ghp_xxxxx \
+  -e AZURE_DEVOPS_PAT=xxxxx \
+  berean
+```
+
+By default, the container starts the webserver (`CMD [ "web" ]`).
+
+You can customize environment variables as needed.
+
 ---
 
 ## Environment Variables
@@ -100,6 +169,14 @@ All settings can be configured via environment variables, ideal for CI/CD:
 | `BEREAN_MAX_RULES_CHARS` | Max total chars for rules input | No |
 | `BEREANMAXRULESCHARS` | Alternative (Azure DevOps Variable Groups format) | No |
 | `BEREAN_VERBOSE` | Verbose logging (token diagnostics and external calls) | No |
+| `BEREAN_DEFAULT_MODEL` | Canonical alias for `BEREAN_MODEL` (takes priority over it) | No |
+| `BEREAN_FALLBACK_MODEL` | Fallback model when primary fails (e.g., `gpt-4o`, `ollama:llama3.2`) | No |
+| `BEREAN_OLLAMA_ENDPOINT` | Ollama server base URL (e.g., `http://localhost:11434`) | For Ollama |
+| `OLLAMA_ENDPOINT` | Alternative to `BEREAN_OLLAMA_ENDPOINT` | For Ollama |
+| `BEREAN_OLLAMA_MODEL` | Default Ollama model name (e.g., `llama3.2`, `gemma4:12b`) | For Ollama |
+| `OLLAMA_MODEL` | Alternative to `BEREAN_OLLAMA_MODEL` | For Ollama |
+| `BEREAN_OLLAMA_API_KEY` | API key for protected Ollama endpoints | No |
+| `OLLAMA_API_KEY` | Alternative to `BEREAN_OLLAMA_API_KEY` | No |
 
 \* For Copilot, an environment token only works if that token type is accepted by the token exchange endpoint. Personal access tokens may fail with `403 Resource not accessible by personal access token`. For local development, use `berean auth login`.
 
@@ -344,18 +421,107 @@ berean models current   # Show current model
 ### `berean config`
 
 ```bash
-berean config set azure-pat <token>      # Save Azure DevOps PAT
-berean config set default-model <model>  # Set default model
-berean config set language <lang>        # Set default language
-berean config set max-rules-chars <num>  # Set max rules characters
-berean config get                        # Show all config
-berean config path                       # Show config directory
+berean config set azure-pat <token>         # Save Azure DevOps PAT
+berean config set default-model <model>     # Set default model
+berean config set fallback-model <model>    # Set fallback model (used when primary fails)
+berean config set language <lang>           # Set default language
+berean config set max-rules-chars <num>     # Set max rules characters
+berean config set ollama-endpoint <url>     # Set Ollama server URL
+berean config set ollama-model <model>      # Set default Ollama model
+berean config get                           # Show all config
+berean config path                          # Show config directory
+```
 
 Example:
 
 ```bash
+berean config set fallback-model gpt-4o
+berean config set ollama-endpoint http://localhost:11434
 berean config set max-rules-chars 50000
 ```
+
+---
+
+## Ollama Provider
+
+Berean supports local model inference via [Ollama](https://ollama.com/), with no cloud credentials required.
+
+### Setup
+
+1. Install and start Ollama: https://ollama.com/download
+2. Pull a model: `ollama pull llama3.2`
+3. Configure Berean:
+
+```bash
+# Via environment variables
+export BEREAN_OLLAMA_ENDPOINT="http://localhost:11434"
+export BEREAN_OLLAMA_MODEL="llama3.2"  # optional — can use model prefix instead
+
+# Or via config
+berean config set ollama-endpoint http://localhost:11434
+berean config set ollama-model llama3.2
+```
+
+### Using Ollama Models
+
+Prefix any model name with `ollama:` to route it to your local Ollama instance:
+
+```bash
+berean review <url> --model ollama:llama3.2
+berean review <url> --model ollama:gemma4:12b
+berean review <url> --model ollama:qwen2.5-coder:14b
+```
+
+Setting `BEREAN_DEFAULT_MODEL` with the `ollama:` prefix also works:
+
+```bash
+export BEREAN_DEFAULT_MODEL="ollama:llama3.2"
+berean review <url>
+```
+
+### Ollama with Protected Endpoint
+
+If your Ollama instance requires authentication:
+
+```bash
+export BEREAN_OLLAMA_ENDPOINT="https://my-ollama.example.com"
+export BEREAN_OLLAMA_API_KEY="my-api-key"
+```
+
+---
+
+## Fallback Model
+
+When the primary provider/model fails (HTTP 401, 429, network error, etc.), Berean automatically retries with a configured fallback.
+
+### Configuration
+
+```bash
+# Via environment variable
+export BEREAN_FALLBACK_MODEL="copilot:gpt-4o"
+
+# Or via config file
+berean config set fallback-model copilot:gpt-4o
+```
+
+### Examples
+
+```bash
+# Use Ollama as primary, GitHub Copilot as fallback
+export BEREAN_DEFAULT_MODEL="ollama:llama3.2"
+export BEREAN_FALLBACK_MODEL="copilot:gpt-4o"
+berean review <url>
+
+# Use Copilot as primary, local Ollama as fallback
+export BEREAN_DEFAULT_MODEL="copilot:gpt-4o"
+export BEREAN_FALLBACK_MODEL="ollama:llama3.2"
+berean review <url>
+```
+
+When the fallback is triggered, a progress event is emitted:
+
+```
+Primary model failed (HTTP 401: "unauthorized"). Retrying with fallback model "gpt-4o"...
 ```
 
 ---

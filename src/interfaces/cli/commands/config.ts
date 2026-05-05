@@ -1,13 +1,21 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { saveConfig, getConfigDir, getAzureDevOpsPATFromPipeline, getGitHubTokenFromAzure, getDefaultModel, getDefaultLanguage, getDefaultModelSource, getDefaultLanguageSource, getMaxRulesChars } from '../services/credentials.js';
-import { getModelMaxRulesChars } from '../services/model-limits.js';
-import { stopClient } from '../providers/github-copilot.js';
+import { saveConfig, getConfigDir, getAzureDevOpsPATFromPipeline, getGitHubTokenFromAzure, getDefaultModel, getDefaultLanguage, getDefaultModelSource, getDefaultLanguageSource, getMaxRulesChars } from '../../../services/credentials.js';
+import { getModelMaxRulesChars } from '../../../services/model-limits.js';
+import { stopProviders } from '../../../composition/container.js';
 
 export const configCommand = new Command('config')
   .description('Manage configuration');
 
-const VALID_CONFIG_KEYS = ['azure-pat', 'default-model', 'language', 'max-rules-chars'];
+const VALID_CONFIG_KEYS = [
+  'azure-pat',
+  'default-model',
+  'language',
+  'max-rules-chars',
+  'ollama-endpoint',
+  'ollama-model',
+  'ollama-api-key',
+];
 
 configCommand
   .command('set <key> <value>')
@@ -41,9 +49,21 @@ configCommand
           process.exit(1);
         }
         saveConfig({ max_rules_chars: value });
-        console.log(chalk.green(`✓ Max rules chars set to: ${value}`));
+        console.log(chalk.green(`✓ max-rules-chars set to: ${value}`));
         break;
       }
+      case 'ollama-endpoint':
+        saveConfig({ ollama_endpoint: value });
+        console.log(chalk.green('✓ Ollama endpoint saved.'));
+        break;
+      case 'ollama-model':
+        saveConfig({ ollama_model: value });
+        console.log(chalk.green('✓ Ollama model saved.'));
+        break;
+      case 'ollama-api-key':
+        saveConfig({ ollama_api_key: value });
+        console.log(chalk.green('✓ Ollama API key saved.'));
+        break;
     }
   });
 
@@ -114,7 +134,7 @@ configCommand
         console.log(chalk.white('  max-rules-chars:'), chalk.cyan(String(await getResolvedMaxRulesChars())));
       }
     } finally {
-      await stopClient();
+      await stopProviders();
     }
   });
 

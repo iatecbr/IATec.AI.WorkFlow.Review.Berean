@@ -1,4 +1,4 @@
-import { getGitHubToken, getGitHubTokenSource } from './credentials.js';
+import { getGitHubToken, getGitHubTokenSource } from '../../../services/credentials.js';
 import type {
   PRBasicInfoResult,
   PRDiffResult,
@@ -6,7 +6,7 @@ import type {
   BereanComment,
   InlineComment,
   FetchDiffOptions,
-} from './azure-devops.js';
+} from '../azure-devops/azure-http.client.js';
 
 export interface GitHubPRInfo {
   owner: string;

@@ -5,9 +5,9 @@ import {
   getAuthStatus,
   loginViaCLI,
   logoutViaCLI
-} from '../services/copilot-auth.js';
-import { clearCredentials, getConfigDir, saveConfig, getDefaultModel } from '../services/credentials.js';
-import { fetchModels } from '../providers/github-copilot.js';
+} from '../../../services/copilot-auth.js';
+import { clearCredentials, saveConfig, getDefaultModel } from '../../../services/credentials.js';
+import { listAvailableModels } from '../../../providers/provider-registry.js';
 import { createInterface } from 'readline';
 
 export const authCommand = new Command('auth')
@@ -57,7 +57,7 @@ async function promptModelSelection() {
   console.log(chalk.blue('\n📋 Available AI Models:\n'));
 
   try {
-    const models = await fetchModels();
+    const models = await listAvailableModels();
 
     const currentModel = getDefaultModel();
 
