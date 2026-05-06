@@ -269,6 +269,7 @@ export async function reviewPullRequest(input: ReviewPullRequestInput): Promise<
     let reviewedCommits: string[] = [];
     let allCommits: string[] = [];
     let newCommits: string[] = [];
+    let commitsToTag: string[] = [];
     let fromIterationId: number | undefined;
     let previousCommitId: string | undefined;
 
@@ -280,20 +281,29 @@ export async function reviewPullRequest(input: ReviewPullRequestInput): Promise<
       ]);
 
       allCommits = prCommits;
+      commitsToTag = allCommits;
       if (bereanComments.length > 0) {
-        const latest = bereanComments[bereanComments.length - 1];
+        const sortedComments = [...bereanComments].sort(
+          (a, b) => new Date(a.createdDate).getTime() - new Date(b.createdDate).getTime(),
+        );
+        const latest = sortedComments[sortedComments.length - 1];
         existingReview = {
           threadId: latest.threadId,
           commentId: latest.commentId,
           reviewedIterationId: latest.reviewedIterationId,
           content: latest.content,
         };
-        reviewedCommits = latest.reviewedCommits ?? [];
+
+        const reviewedCommitSet = new Set(
+          bereanComments.flatMap(comment => comment.reviewedCommits ?? []),
+        );
+        reviewedCommits = allCommits.filter(commit => reviewedCommitSet.has(commit));
         if (reviewedCommits.length > 0) {
           previousCommitId = reviewedCommits[reviewedCommits.length - 1];
         }
 
-        newCommits = allCommits.filter(c => !reviewedCommits.includes(c));
+        newCommits = allCommits.filter(c => !reviewedCommitSet.has(c));
+        commitsToTag = allCommits;
         if (input.skipIfReviewed && newCommits.length === 0) {
           return { status: 'skipped', reason: 'PR already reviewed by Berean (no new commits)' };
         }
@@ -306,6 +316,7 @@ export async function reviewPullRequest(input: ReviewPullRequestInput): Promise<
       }
     } else {
       allCommits = await provider.getPRCommits();
+      commitsToTag = allCommits;
     }
 
     progress(input, 'fetch-diff', 'Fetching PR diff...');
@@ -385,7 +396,7 @@ export async function reviewPullRequest(input: ReviewPullRequestInput): Promise<
       const success = await postGeneralComment(
         provider,
         reviewResult,
-        allCommits,
+        commitsToTag,
         diffResult.currentIterationId,
         existingReview,
         input.incremental,
