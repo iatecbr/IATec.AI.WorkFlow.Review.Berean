@@ -1,6 +1,5 @@
 import type {
   ModelDetail,
-  ReviewIssue,
   ReviewModelPort,
   ReviewOptions,
   ReviewResult,
@@ -10,107 +9,11 @@ import { getOllamaApiKey, getOllamaEndpoint, getOllamaModel } from '../services/
 import { OllamaProvider } from '../infrastructure/ai/ollama/ollama-http.client.js';
 import { extractErrorMessage } from '../lib/errors.js';
 import { extractReviewScope } from '../domain/review/services/review-scope.service.js';
-import { filterIssuesToReviewScope } from '../domain/review/services/issue-filter.service.js';
 import { parseModelId, stripProviderPrefix } from '../domain/shared/model-identifier.js';
-
-function tryParseJson(text: string): Record<string, unknown> | null {
-  try {
-    return JSON.parse(text);
-  } catch {
-    let fixedJson = text;
-    const openBraces = (fixedJson.match(/{/g) ?? []).length;
-    const closeBraces = (fixedJson.match(/}/g) ?? []).length;
-    const openBrackets = (fixedJson.match(/\[/g) ?? []).length;
-    const closeBrackets = (fixedJson.match(/\]/g) ?? []).length;
-
-    fixedJson = fixedJson.replace(/,\s*"[^"]*$/, '');
-    fixedJson = fixedJson.replace(/,\s*$/, '');
-    fixedJson = fixedJson.replace(/:\s*"[^"]*$/, ': ""');
-
-    for (let i = 0; i < openBrackets - closeBrackets; i++) fixedJson += ']';
-    for (let i = 0; i < openBraces - closeBraces; i++) fixedJson += '}';
-
-    try {
-      return JSON.parse(fixedJson);
-    } catch {
-      return null;
-    }
-  }
-}
-
-function extractJsonFromMixedContent(content: string): Record<string, unknown> | null {
-  let searchFrom = 0;
-  while (searchFrom < content.length) {
-    const braceIndex = content.indexOf('{', searchFrom);
-    if (braceIndex === -1) break;
-
-    const result = tryParseJson(content.substring(braceIndex));
-    if (result && typeof result === 'object' && !Array.isArray(result)) {
-      return result;
-    }
-
-    searchFrom = braceIndex + 1;
-  }
-
-  return null;
-}
-
-function extractJsonArrayFromMixedContent(content: string): string[] {
-  const match = content.match(/\[[\s\S]*?\]/);
-  if (!match) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(match[0]) as unknown;
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === 'string').slice(0, 5)
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function parseReviewResponse(content: string, model: string, diff: string): ReviewResult {
-  try {
-    let jsonContent = content;
-    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      jsonContent = jsonMatch[1].trim();
-    }
-
-    type ParsedReview = {
-      summary?: string;
-      recommendation?: ReviewResult['recommendation'];
-      issues?: ReviewIssue[];
-      positives?: string[];
-      recommendations?: string[];
-    };
-
-    const reviewScope = extractReviewScope(diff);
-    let parsed = tryParseJson(jsonContent) as ParsedReview | null;
-    if (!parsed) {
-      parsed = extractJsonFromMixedContent(content) as ParsedReview | null;
-    }
-
-    if (parsed) {
-      return {
-        success: true,
-        summary: parsed.summary,
-        recommendation: parsed.recommendation,
-        issues: filterIssuesToReviewScope(parsed.issues, reviewScope),
-        positives: parsed.positives,
-        recommendations: parsed.recommendations,
-        review: content,
-        model,
-      };
-    }
-
-    return { success: true, review: content, model };
-  } catch {
-    return { success: true, review: content, model };
-  }
-}
+import {
+  parseReviewContent,
+  extractJsonArrayFromMixedContent,
+} from '../infrastructure/ai/review-parser.js';
 
 async function buildReviewPrompt(language: string, diff: string, rules?: string): Promise<{ system: string; user: string }> {
   const repository = getPromptRepository();
@@ -214,7 +117,7 @@ export class OllamaReviewModelProvider implements ReviewModelPort {
       });
       const { system, user } = await buildReviewPrompt(options.language ?? 'English', diff, options.rules);
       const content = await provider.generate(user, { system });
-      const result = parseReviewResponse(content, `ollama:${model}`, diff);
+      const result = parseReviewContent(content, `ollama:${model}`, extractReviewScope(diff));
 
       if (result.issues && options.confidenceThreshold) {
         result.issues = result.issues.filter(issue => (issue.confidence || 100) >= options.confidenceThreshold!);

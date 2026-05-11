@@ -3,10 +3,9 @@ import { getGitHubTokenFromAzure } from '../../../services/credentials.js';
 import type { ReviewOptions, ReviewResult } from '../../../application/ports/review-model.port.js';
 import { getPromptRepository, renderPrompt } from '../../prompts/file-prompt.repository.js';
 import { getClient, log } from './copilot-client.factory.js';
-import { extractReviewScope, type ReviewScope } from '../../../domain/review/services/review-scope.service.js';
-import { filterIssuesToReviewScope } from '../../../domain/review/services/issue-filter.service.js';
-import type { ReviewIssue } from '../../../domain/review/entities/review-issue.js';
+import { extractReviewScope } from '../../../domain/review/services/review-scope.service.js';
 import { stripProviderPrefix } from '../../../domain/shared/model-identifier.js';
+import { parseReviewContent } from '../review-parser.js';
 
 // ─── Review ───────────────────────────────────────────────────────────────────
 
@@ -129,7 +128,7 @@ export async function reviewCode(diff: string, options: ReviewOptions = {}): Pro
       return { success: false, error: 'Empty response from API', model };
     }
 
-    const result = parseReviewResponse(content, model, reviewScope);
+    const result = parseReviewContent(content, model, reviewScope);
     if (result.issues && confidenceThreshold) {
       result.issues = result.issues.filter(i => (i.confidence || 100) >= confidenceThreshold);
     }
@@ -138,93 +137,6 @@ export async function reviewCode(diff: string, options: ReviewOptions = {}): Pro
     const errMsg = error instanceof Error ? error.message : 'Unknown error';
     return { success: false, error: errMsg, model };
   }
-}
-
-// ─── Response parsing ─────────────────────────────────────────────────────────
-
-function parseReviewResponse(content: string, model: string, reviewScope: ReviewScope): ReviewResult {
-  try {
-    let jsonContent = content;
-
-    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      jsonContent = jsonMatch[1].trim();
-    }
-
-    type ParsedReview = {
-      summary?: string;
-      recommendation?: ReviewResult['recommendation'];
-      issues?: ReviewResult['issues'];
-      positives?: string[];
-      recommendations?: string[];
-    };
-
-    let parsed = tryParseJson(jsonContent) as ParsedReview | null;
-    if (!parsed) {
-      parsed = extractJsonFromMixedContent(content) as ParsedReview | null;
-    }
-
-    if (parsed) {
-      return {
-        success: true,
-        summary: parsed.summary,
-        recommendation: parsed.recommendation,
-        issues: filterIssuesToReviewScope(parsed.issues, reviewScope),
-        positives: parsed.positives,
-        recommendations: parsed.recommendations,
-        review: content,
-        model,
-      };
-    }
-
-    log(`[berean] ⚠ Could not parse review response as JSON (${content.length} chars). Content starts with: "${content.substring(0, 120)}..."`);
-    return { success: true, review: content, model };
-  } catch {
-    return { success: true, review: content, model };
-  }
-}
-
-function tryParseJson(text: string): Record<string, unknown> | null {
-  try {
-    return JSON.parse(text);
-  } catch {
-    let fixedJson = text;
-    const openBraces = (fixedJson.match(/{/g) ?? []).length;
-    const closeBraces = (fixedJson.match(/}/g) ?? []).length;
-    const openBrackets = (fixedJson.match(/\[/g) ?? []).length;
-    const closeBrackets = (fixedJson.match(/\]/g) ?? []).length;
-
-    fixedJson = fixedJson.replace(/,\s*"[^"]*$/, '');
-    fixedJson = fixedJson.replace(/,\s*$/, '');
-    fixedJson = fixedJson.replace(/:\s*"[^"]*$/, ': ""');
-
-    for (let i = 0; i < openBrackets - closeBrackets; i++) fixedJson += ']';
-    for (let i = 0; i < openBraces - closeBraces; i++) fixedJson += '}';
-
-    try {
-      return JSON.parse(fixedJson);
-    } catch {
-      return null;
-    }
-  }
-}
-
-function extractJsonFromMixedContent(content: string): Record<string, unknown> | null {
-  let searchFrom = 0;
-  while (searchFrom < content.length) {
-    const braceIndex = content.indexOf('{', searchFrom);
-    if (braceIndex === -1) break;
-
-    const candidate = content.substring(braceIndex);
-    const result = tryParseJson(candidate);
-    if (result && typeof result === 'object' && !Array.isArray(result) && ('summary' in result || 'issues' in result || 'recommendation' in result)) {
-      log(`[berean] Extracted JSON from mixed content at position ${braceIndex}`);
-      return result;
-    }
-
-    searchFrom = braceIndex + 1;
-  }
-  return null;
 }
 
 // ─── Prompt ───────────────────────────────────────────────────────────────────
@@ -245,5 +157,3 @@ async function buildReviewPrompt(language: string, diff: string, rules?: string)
   };
 }
 
-export { extractReviewScope, filterIssuesToReviewScope };
-export type { ReviewIssue, ReviewScope };
