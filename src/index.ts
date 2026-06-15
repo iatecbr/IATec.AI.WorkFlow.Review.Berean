@@ -23,7 +23,7 @@ const program = new Command();
 program
   .name('berean')
   .description('🔍 AI-powered code review for GitHub and Azure DevOps PRs using Ollama or GitHub Copilot')
-  .version('2.0.0', '-v, --version', 'Show current version');
+  .version('2.0.1', '-v, --version', 'Show current version');
 
 program.addCommand(authCommand);
 program.addCommand(reviewCommand);
