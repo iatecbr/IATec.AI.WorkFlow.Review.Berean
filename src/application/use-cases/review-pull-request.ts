@@ -37,6 +37,10 @@ export interface ReviewPullRequestInput {
   force?: boolean;
   confidenceThreshold?: number | string;
   rules?: string;
+  /** Raw rules text to inject directly, bypassing file/URL resolution.
+   * Useful when the rules live in the same repo being reviewed and the
+   * CI pipeline can read them locally before sending the request. */
+  rulesContent?: string;
   skipFolders?: string;
   verbose?: boolean;
   config?: ConfigPort;
@@ -360,6 +364,13 @@ export async function reviewPullRequest(input: ReviewPullRequestInput): Promise<
       rules = rulesResult.rules || undefined;
     } catch {
       rules = undefined;
+    }
+
+    // Append inline rules content passed directly in the request (e.g. read
+    // by the CI pipeline from the repo being reviewed).
+    if (input.rulesContent?.trim()) {
+      const inlineBlock = `## Inline Rules\n\n${input.rulesContent.trim()}`;
+      rules = rules ? `${rules}\n\n---\n\n${inlineBlock}` : inlineBlock;
     }
 
     progress(input, 'review', `Reviewing with ${model}...`);

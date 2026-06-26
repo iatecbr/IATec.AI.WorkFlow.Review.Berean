@@ -19,6 +19,7 @@ export interface ReviewRequestBody {
   force?: boolean;
   verbose?: boolean;
   rules?: string;
+  rulesContent?: string;
 }
 
 export async function reviewRoute(app: FastifyInstance) {
@@ -44,6 +45,7 @@ export async function reviewRoute(app: FastifyInstance) {
           force: { type: 'boolean' },
           verbose: { type: 'boolean' },
           rules: { type: 'string' },
+          rulesContent: { type: 'string' },
         },
         additionalProperties: false,
       },
@@ -66,6 +68,7 @@ export async function reviewRoute(app: FastifyInstance) {
       force,
       verbose,
       rules,
+      rulesContent,
     } = req.body;
 
     reply.hijack();
@@ -90,6 +93,7 @@ export async function reviewRoute(app: FastifyInstance) {
         force,
         verbose,
         rules,
+        rulesContent,
         onProgress: ({ phase, message }) => presenter.sendProgress(phase, message),
       });
 
