@@ -23,6 +23,10 @@ export async function reviewCode(diff: string, options: ReviewOptions = {}): Pro
 
     log(`[berean] Token source: ${token ? 'env var' : 'SDK default'}`);
     log(`[berean] Node version: ${process.version}`);
+    log(`[berean] Rules in prompt: ${rules ? `yes (${rules.length} chars)` : 'no'}`);
+    if (rules) {
+      log(`[berean] Rules preview: ${rules.substring(0, 300).replace(/\n/g, '↵')}...`);
+    }
     log(`[berean] Prompt size: ${promptSize} chars (~${Math.round(promptSize / 4)} tokens)`);
 
     let content = '';

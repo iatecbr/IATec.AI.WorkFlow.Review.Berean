@@ -351,6 +351,8 @@ export async function reviewPullRequest(input: ReviewPullRequestInput): Promise<
     const builtInRulesPath = getBuiltInRulesPath();
     const rulesInput = userRulesInput ? `${builtInRulesPath},${userRulesInput}` : builtInRulesPath;
 
+    const verboseLog = (msg: string) => { if (input.verbose) console.error(msg); };
+
     progress(input, 'load-rules', 'Loading project rules...');
     try {
       const sources = parseRuleSources(rulesInput);
@@ -362,16 +364,32 @@ export async function reviewPullRequest(input: ReviewPullRequestInput): Promise<
         maxRulesCharsDefault,
       );
       rules = rulesResult.rules || undefined;
-    } catch {
+      verboseLog(`[berean] Built-in/path rules loaded: ${rules ? `${rules.length} chars` : 'none'}`);
+      for (const src of rulesResult.sources) {
+        verboseLog(`[berean] Rule source [${src.status}] ${src.type}: ${src.label}${src.message ? ` — ${src.message}` : ''}`);
+      }
+    } catch (e) {
+      verboseLog(`[berean] Rules loading failed: ${e instanceof Error ? e.message : e}`);
       rules = undefined;
     }
 
-    // Append inline rules content passed directly in the request (e.g. read
-    // by the CI pipeline from the repo being reviewed).
+    // Inline rules passed directly in the request (e.g. read by the CI pipeline
+    // from the repo being reviewed). These are placed last and marked as highest
+    // priority so the LLM applies them over the built-in rules above.
     if (input.rulesContent?.trim()) {
-      const inlineBlock = `## Inline Rules\n\n${input.rulesContent.trim()}`;
+      const inlineBlock = [
+        '## PROJECT-SPECIFIC RULES — HIGHEST PRIORITY',
+        '',
+        '> The rules below are mandatory and override any built-in rules above.',
+        '> Apply them strictly when evaluating the code.',
+        '',
+        input.rulesContent.trim(),
+      ].join('\n');
       rules = rules ? `${rules}\n\n---\n\n${inlineBlock}` : inlineBlock;
+      verboseLog(`[berean] rulesContent appended: ${input.rulesContent.trim().length} chars`);
     }
+
+    verboseLog(`[berean] Total rules block: ${rules ? `${rules.length} chars` : 'none (no rules will be injected)'}`);
 
     progress(input, 'review', `Reviewing with ${model}...`);
     const confidenceThreshold = typeof input.confidenceThreshold === 'string'
