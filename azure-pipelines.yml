@@ -27,7 +27,6 @@ stages:
         command: 'buildAndPush'
         dockerfile: '$(Build.SourcesDirectory)/Dockerfile'
         tags: |
-          $(tag)
           latest
         addPipelineData: false
         addBaseImageData: false
