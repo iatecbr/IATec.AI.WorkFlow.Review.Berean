@@ -118,7 +118,7 @@ By default, the server listens at `http://localhost:3000`.
     ```
 - `POST /auth` — Executes Copilot authentication (useful for automated flows)
 
-See full examples in [src/routes/review.ts](src/routes/review.ts) and [src/routes/auth.ts](src/routes/auth.ts).
+See full examples in [src/interfaces/http/routes/review.ts](src/interfaces/http/routes/review.ts) and [src/interfaces/http/routes/auth.ts](src/interfaces/http/routes/auth.ts).
 
 The terminal banner shows all local IPs for network access.
 

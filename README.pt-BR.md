@@ -110,7 +110,7 @@ Por padrão, o servidor escuta em `http://localhost:3000`.
     ```
 - `POST /auth` — Executa autenticação Copilot (útil para flows automatizados)
 
-Veja exemplos completos em [src/routes/review.ts](src/routes/review.ts) e [src/routes/auth.ts](src/routes/auth.ts).
+Veja exemplos completos em [src/interfaces/http/routes/review.ts](src/interfaces/http/routes/review.ts) e [src/interfaces/http/routes/auth.ts](src/interfaces/http/routes/auth.ts).
 
 O banner do terminal mostra todos os IPs locais para acesso em rede.
 
